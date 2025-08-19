@@ -160,8 +160,22 @@ export function clearArea(wx, wy, r, amt = 64) {
   return cleared;
 }
 
-export function update(dt) {
+export function update(dt, playerWX, playerWY, worldMotion = { x: 0, y: 0 }) {
   S.time += dt;
+
+  if (worldMotion.x || worldMotion.y) {
+    const mdx = Math.round(worldMotion.x / TILE_SIZE);
+    const mdy = Math.round(worldMotion.y / TILE_SIZE);
+    if (mdx || mdy) scroll(mdx, mdy);
+  }
+
+  const [ptx, pty] = worldToTile(playerWX, playerWY, TILE_SIZE);
+  const centerX = S.ox + Math.floor(S.width / 2);
+  const centerY = S.oy + Math.floor(S.height / 2);
+  const pdx = ptx - centerX;
+  const pdy = pty - centerY;
+  if (pdx || pdy) scroll(pdx, pdy);
+
   S.windX += S.windVX * dt;
   S.windY += S.windVY * dt;
 
@@ -223,5 +237,34 @@ export function draw(ctx, cam, w, h) {
   grd.addColorStop(1, "rgba(128,0,180,0.35)");
   ctx.fillStyle = grd;
   ctx.fillRect(0, 0, w, h);
+
+  let budget = config.maxDrawTilesPerFrame;
+  if (budget <= 0) return;
+
+  const left = Math.floor((cam.x - w / 2) / TILE_SIZE);
+  const right = Math.floor((cam.x + w / 2) / TILE_SIZE);
+  const top = Math.floor((cam.y - h / 2) / TILE_SIZE);
+  const bottom = Math.floor((cam.y + h / 2) / TILE_SIZE);
+
+  for (let ty = top; ty <= bottom && budget > 0; ty++) {
+    for (let tx = left; tx <= right && budget > 0; tx++) {
+      if (
+        tx < S.ox ||
+        tx >= S.ox + S.width ||
+        ty < S.oy ||
+        ty >= S.oy + S.height
+      )
+        continue;
+      const ix = mod(tx - S.ox, S.width);
+      const iy = mod(ty - S.oy, S.height);
+      const d = S.density[iy * S.width + ix];
+      if (d === 0) continue;
+      ctx.fillStyle = `rgba(128,0,180,${(d / 255).toFixed(3)})`;
+      const x = tx * TILE_SIZE - cam.x + w / 2;
+      const y = ty * TILE_SIZE - cam.y + h / 2;
+      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+      budget--;
+    }
+  }
 }
 
