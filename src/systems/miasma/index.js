@@ -146,9 +146,26 @@ export function clearArea(wx, wy, r, _amt = 64) {
 export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, viewW = innerWidth, viewH = innerHeight) {
   S.time += dt;
 
-  // 1) worldMotion scroll (unchanged)...
+  // 1) Apply world motion in whole tiles (if your land record moved)
+  if (worldMotion.x || worldMotion.y) {
+    const mdx = Math.trunc(worldMotion.x / TILE_SIZE);
+    const mdy = Math.trunc(worldMotion.y / TILE_SIZE);
+    if (mdx || mdy) scroll(mdx, mdy);
+  }
 
-  // 2) Coverage clamp (do NOT re-center): only scroll if camera approaches the ring edges.
+  // 2) Wind advection FIRST: accumulate fractional, scroll whole tiles when exceeded
+  const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
+  S.windX += (wv.vxTilesPerSec || 0) * dt;
+  S.windY += (wv.vyTilesPerSec || 0) * dt;
+
+  let sx = 0, sy = 0;
+  if (S.windX >= 1) { sx = Math.floor(S.windX); S.windX -= sx; }
+  else if (S.windX <= -1) { sx = Math.ceil(S.windX); S.windX -= sx; }
+  if (S.windY >= 1) { sy = Math.floor(S.windY); S.windY -= sy; }
+  else if (S.windY <= -1) { sy = Math.ceil(S.windY); S.windY -= sy; }
+  if (sx || sy) scroll(sx, sy);
+
+  // 3) Margin clamp ONLY (no recentre): top up edges that fall below MARGIN tiles
   const VW = Math.ceil(viewW / TILE_SIZE);
   const VH = Math.ceil(viewH / TILE_SIZE);
   const camLeft   = Math.floor((centerWX - viewW / 2) / TILE_SIZE);
@@ -156,51 +173,24 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
   const camTop    = Math.floor((centerWY - viewH / 2) / TILE_SIZE);
   const camBottom = camTop + VH - 1;
 
-  // left edge: ensure we have at least MARGIN tiles to the left
   if (camLeft - S.ox < MARGIN) {
-    const need = MARGIN - (camLeft - S.ox); // positive
+    const need = MARGIN - (camLeft - S.ox);
     if (need > 0) scroll(-need, 0);
   }
-  // right edge
   if ((S.ox + S.width - 1) - camRight < MARGIN) {
     const need = MARGIN - ((S.ox + S.width - 1) - camRight);
     if (need > 0) scroll(need, 0);
   }
-  // top edge
   if (camTop - S.oy < MARGIN) {
     const need = MARGIN - (camTop - S.oy);
     if (need > 0) scroll(0, -need);
   }
-  // bottom edge
   if ((S.oy + S.height - 1) - camBottom < MARGIN) {
     const need = MARGIN - ((S.oy + S.height - 1) - camBottom);
     if (need > 0) scroll(0, need);
   }
 
-
- 
-  // 3) Wind advection (tiles/sec from modular wind gears)
-  const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
-
-  // accumulate wind offset separately
-  S.windX += (wv.vxTilesPerSec || 0) * dt;
-  S.windY += (wv.vyTilesPerSec || 0) * dt;
-
-  let sx = 0, sy = 0;
-
-  if (S.windX >= 1) { sx = Math.floor(S.windX); S.windX -= sx; }
-  else if (S.windX <= -1) { sx = Math.ceil(S.windX); S.windX -= sx; }
-
-  if (S.windY >= 1) { sy = Math.floor(S.windY); S.windY -= sy; }
-  else if (S.windY <= -1) { sy = Math.ceil(S.windY); S.windY -= sy; }
-
-  if (sx || sy) {
-    scroll(sx, sy);
-  }
-
-
-
-  // 4) Edge fill from queue (deterministic per world tile)
+  // 4) Edge fill (unchanged)
   let edgeBudget = (MC.maxEdgeFillPerTick ?? config.maxEdgeFillPerTick ?? 128);
   while (edgeBudget > 0 && S.fillQueue.length) {
     const { index, tx, ty } = S.fillQueue.shift();
@@ -208,19 +198,20 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
     edgeBudget--;
   }
 
-  // 5) Binary regrow toward seed (respects permanent clears)
-let regrowBudget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
+  // 5) Binary regrow (unchanged)
+  let regrowBudget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
   const total = S.width * S.height;
   while (regrowBudget > 0 && total > 0) {
     const idx = S.regrowIndex;
     const tx = S.ox + (idx % S.width);
     const ty = S.oy + Math.floor(idx / S.width);
-    const target = miasmaSeed(tx, ty, S.time); // 0 or 1
+    const target = miasmaSeed(tx, ty, S.time);
     if (S.density[idx] !== target) S.density[idx] = target;
     S.regrowIndex = (S.regrowIndex + 1) % total;
     regrowBudget--;
   }
 }
+
 
 export function draw(ctx, cam, w, h) {
   // World-space: share transform with grid/player
