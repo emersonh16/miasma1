@@ -32,10 +32,27 @@ const S = {
 const clearedTiles = new Set();
 const tkey = (tx, ty) => `${tx},${ty}`;
 
-// Seed respecting permanent clears: 0 if ever cleared, else 1
+// Fast integer hash (world anchored)
+function hash32(x, y, seed = (config.seed|0)) {
+  // Thomas Wang-ish 2D mix
+  let h = x | 0;
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d);
+  h = Math.imul(h ^ (h >>> 15), 0x846ca68b);
+  let k = y | 0;
+  k = Math.imul(k ^ (k >>> 16), 0x7feb352d);
+  k = Math.imul(k ^ (k >>> 15), 0x846ca68b);
+  let r = (h ^ k ^ seed) >>> 0;
+  // one more mix
+  r ^= r >>> 16; r = Math.imul(r, 0x7feb352d);
+  r ^= r >>> 15; r = Math.imul(r, 0x846ca68b);
+  return r >>> 0;
+}
+
+// Binary seed: full fog unless permanently cleared
 function miasmaSeed(tx, ty, _time) {
   return clearedTiles.has(tkey(tx, ty)) ? 0 : 1;
 }
+
 
 function enqueueColumn(tx) {
   const ix = mod(tx - S.ox, S.width);
@@ -131,30 +148,56 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
 
   // 1) worldMotion scroll (unchanged)...
 
-  // 2) Conveyor follow: anchor ring to the actual view size
-  const leftTile = Math.floor((centerWX - viewW / 2) / TILE_SIZE);
-  const topTile  = Math.floor((centerWY - viewH / 2) / TILE_SIZE);
-  const desiredOx = leftTile - MARGIN;
-  const desiredOy = topTile  - MARGIN;
-  const dx = desiredOx - S.ox;
-  const dy = desiredOy - S.oy;
-  if (dx || dy) scroll(dx, dy);
+  // 2) Coverage clamp (do NOT re-center): only scroll if camera approaches the ring edges.
+  const VW = Math.ceil(viewW / TILE_SIZE);
+  const VH = Math.ceil(viewH / TILE_SIZE);
+  const camLeft   = Math.floor((centerWX - viewW / 2) / TILE_SIZE);
+  const camRight  = camLeft + VW - 1;
+  const camTop    = Math.floor((centerWY - viewH / 2) / TILE_SIZE);
+  const camBottom = camTop + VH - 1;
+
+  // left edge: ensure we have at least MARGIN tiles to the left
+  if (camLeft - S.ox < MARGIN) {
+    const need = MARGIN - (camLeft - S.ox); // positive
+    if (need > 0) scroll(-need, 0);
+  }
+  // right edge
+  if ((S.ox + S.width - 1) - camRight < MARGIN) {
+    const need = MARGIN - ((S.ox + S.width - 1) - camRight);
+    if (need > 0) scroll(need, 0);
+  }
+  // top edge
+  if (camTop - S.oy < MARGIN) {
+    const need = MARGIN - (camTop - S.oy);
+    if (need > 0) scroll(0, -need);
+  }
+  // bottom edge
+  if ((S.oy + S.height - 1) - camBottom < MARGIN) {
+    const need = MARGIN - ((S.oy + S.height - 1) - camBottom);
+    if (need > 0) scroll(0, need);
+  }
+
 
  
   // 3) Wind advection (tiles/sec from modular wind gears)
   const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
+
+  // accumulate wind offset separately
   S.windX += (wv.vxTilesPerSec || 0) * dt;
   S.windY += (wv.vyTilesPerSec || 0) * dt;
 
-  let sx = 0;
+  let sx = 0, sy = 0;
+
   if (S.windX >= 1) { sx = Math.floor(S.windX); S.windX -= sx; }
   else if (S.windX <= -1) { sx = Math.ceil(S.windX); S.windX -= sx; }
 
-  let sy = 0;
   if (S.windY >= 1) { sy = Math.floor(S.windY); S.windY -= sy; }
   else if (S.windY <= -1) { sy = Math.ceil(S.windY); S.windY -= sy; }
 
-  if (sx || sy) scroll(sx, sy);
+  if (sx || sy) {
+    scroll(sx, sy);
+  }
+
 
 
   // 4) Edge fill from queue (deterministic per world tile)
