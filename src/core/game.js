@@ -111,8 +111,7 @@ function frame(now) {
   ctx.save();
   ctx.translate(w / 2, h / 2);
 
-  // Grid first, then player/beam
-  drawGrid(ctx, cam, w, h, 64);
+  // World draw (no grid)
   drawPlayer(ctx, cam, player);
   beam.draw(ctx, cam, player);
 
