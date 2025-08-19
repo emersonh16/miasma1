@@ -5,8 +5,10 @@
 import { worldToTile, mod } from "../../core/coords.js";
 import { config } from "../../core/config.js";
 
-const TILE_SIZE = 64; // world units per tile
-const MARGIN = 4;     // tile margin around the viewport
+const MC = (config.miasma ?? {});
+const TILE_SIZE = MC.tileSize ?? 64;
+const MARGIN = MC.marginTiles ?? 4;
+
 
 // Internal state (binary: 0 = clear, 1 = fog)
 const S = {
@@ -156,7 +158,7 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }) {
   if (sx || sy) scroll(sx, sy);
 
   // 4) Edge fill from queue (deterministic per world tile)
-  let edgeBudget = config.maxEdgeFillPerTick;
+  let edgeBudget = (MC.maxEdgeFillPerTick ?? config.maxEdgeFillPerTick ?? 128);
   while (edgeBudget > 0 && S.fillQueue.length) {
     const { index, tx, ty } = S.fillQueue.shift();
     S.density[index] = miasmaSeed(tx, ty, S.time);
@@ -164,7 +166,7 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }) {
   }
 
   // 5) Binary regrow toward seed (respects permanent clears)
-  let regrowBudget = config.maxTilesUpdatedPerTick;
+let regrowBudget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
   const total = S.width * S.height;
   while (regrowBudget > 0 && total > 0) {
     const idx = S.regrowIndex;
@@ -182,7 +184,7 @@ export function draw(ctx, cam, w, h) {
   ctx.save();
   ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
 
-  let budget = config.maxDrawTilesPerFrame;
+let budget = (MC.maxDrawTilesPerFrame ?? config.maxDrawTilesPerFrame ?? 4096);
   if (budget > 0) {
     const left   = Math.floor((cam.x - w / 2) / TILE_SIZE);
     const right  = Math.floor((cam.x + w / 2) / TILE_SIZE);
@@ -195,7 +197,7 @@ export function draw(ctx, cam, w, h) {
         const ix = mod(tx - S.ox, S.width);
         const iy = mod(ty - S.oy, S.height);
         if (S.density[iy * S.width + ix] !== 1) continue; // binary
-        ctx.fillStyle = "rgba(128,0,180,0.35)";
+        ctx.fillStyle = (MC.color ?? "rgba(128,0,180,0.35)");
         ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
         budget--;
       }
