@@ -24,11 +24,17 @@ const S = {
   regrowIndex: 0,
 };
 
-// Binary seed: 1 = fog present, 0 = clear.
-// (Swap to noise threshold later if you want patterns.)
-function miasmaSeed(_tx, _ty, _time) {
-  return 1;
+// Track permanently-cleared world tiles (by tile coords).
+const clearedTiles = new Set();
+const tkey = (tx, ty) => `${tx},${ty}`;
+
+// Binary seed respecting permanent clears:
+//  - 0 if this world tile was ever cleared by light
+//  - 1 otherwise
+function miasmaSeed(tx, ty, _time) {
+  return clearedTiles.has(tkey(tx, ty)) ? 0 : 1;
 }
+
 
 function enqueueColumn(tx) {
   const ix = mod(tx - S.ox, S.width);
