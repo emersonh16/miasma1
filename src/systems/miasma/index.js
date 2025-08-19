@@ -19,8 +19,11 @@ export function update(dt) {
 }
 
 export function draw(ctx, cam, w, h) {
-  // Lightweight overlay preview: vignette by distance to cam center.
-  const grd = ctx.createRadialGradient(w/2, h/2, 64, w/2, h/2, Math.hypot(w, h)/1.2);
+  // Lightweight overlay preview anchored to world space so it scrolls
+  // opposite to camera movement. Origin is at world (0,0).
+  const cx = w / 2 - cam.x;
+  const cy = h / 2 - cam.y;
+  const grd = ctx.createRadialGradient(cx, cy, 64, cx, cy, Math.hypot(w, h) / 1.2);
   grd.addColorStop(0, "rgba(128,0,180,0.05)");
   grd.addColorStop(1, "rgba(128,0,180,0.35)");
   ctx.fillStyle = grd;
