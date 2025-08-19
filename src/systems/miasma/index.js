@@ -163,18 +163,34 @@ export function clearArea(wx, wy, r, amt = 64) {
 export function update(dt, playerWX, playerWY, worldMotion = { x: 0, y: 0 }) {
   S.time += dt;
 
+  // Scroll when the viewport moves by whole tiles so the ring
+  // always covers the screen plus margin, while staying world-anchored.
+
+  // 1) World scrolling (if your world ever moves under the camera)
   if (worldMotion.x || worldMotion.y) {
     const mdx = Math.round(worldMotion.x / TILE_SIZE);
     const mdy = Math.round(worldMotion.y / TILE_SIZE);
     if (mdx || mdy) scroll(mdx, mdy);
   }
 
-  const [ptx, pty] = worldToTile(playerWX, playerWY, TILE_SIZE);
-  const centerX = S.ox + Math.floor(S.width / 2);
-  const centerY = S.oy + Math.floor(S.height / 2);
-  const pdx = ptx - centerX;
-  const pdy = pty - centerY;
-  if (pdx || pdy) scroll(pdx, pdy);
+  // 2) Viewport following (conveyor): compute the top-left visible tile
+  //    from player position and screen size, then keep a padded ring.
+  const VW = Math.ceil(innerWidth / TILE_SIZE);
+  const VH = Math.ceil(innerHeight / TILE_SIZE);
+  const leftTile  = Math.floor((playerWX - innerWidth  / 2) / TILE_SIZE);
+  const topTile   = Math.floor((playerWY - innerHeight / 2) / TILE_SIZE);
+  const desiredOx = leftTile - MARGIN;
+  const desiredOy = topTile  - MARGIN;
+
+  const dx = desiredOx - S.ox;
+  const dy = desiredOy - S.oy;
+  if (dx || dy) scroll(dx, dy);
+
+
+  // Removed player-centering scroll.
+  // Buffer origin (ox, oy) stays anchored in world tile space,
+  // so cleared areas remain where they were.
+
 
   S.windX += S.windVX * dt;
   S.windY += S.windVY * dt;
