@@ -1,6 +1,25 @@
-const state = { mode: "cone" }; // "bubble" | "cone" | "laser"
+// Modes are ordered low→high: laser → cone → bubble → off (no-beam)
+const MODES = ["laser", "cone", "bubble", "off"];
+const state = {
+  modeIndex: 1,   // start at "cone"
+  angle: 0        // radians, world-relative aim
+};
 
-export function setMode(m) { state.mode = m; }
+export function getMode() { return MODES[state.modeIndex]; }
+
+export function setMode(m) {
+  const i = MODES.indexOf((m || "").toLowerCase());
+  if (i !== -1) state.modeIndex = i;
+}
+
+export function modeUp(steps = 1) { // toward "off"
+  state.modeIndex = Math.min(MODES.length - 1, state.modeIndex + steps);
+}
+export function modeDown(steps = 1) { // toward "laser"
+  state.modeIndex = Math.max(0, state.modeIndex - steps);
+}
+
+export function setAngle(rad) { state.angle = rad || 0; }
 
 export function raycast(origin, dir, params = {}) {
   // Placeholder: returns no hits; clears a little fog straight ahead.
@@ -8,15 +27,36 @@ export function raycast(origin, dir, params = {}) {
 }
 
 export function draw(ctx, cam, player) {
+  const mode = MODES[state.modeIndex];
+  if (mode === "off") return; // no-beam: draw nothing
+
   ctx.save();
   ctx.translate(-cam.x + player.x, -cam.y + player.y);
-  ctx.globalAlpha = 0.8;
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(120, -20);
-  ctx.lineTo(120, 20);
-  ctx.closePath();
-  ctx.fillStyle = "rgba(255,240,160,0.35)";
-  ctx.fill();
+  ctx.rotate(state.angle);
+  ctx.globalAlpha = 0.85;
+
+  if (mode === "bubble") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 90, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,240,160,0.25)";
+    ctx.fill();
+  } else if (mode === "laser") {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(180, 0);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(255,240,160,0.9)";
+    ctx.stroke();
+  } else {
+    // cone
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(140, -22);
+    ctx.lineTo(140, 22);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,240,160,0.35)";
+    ctx.fill();
+  }
+
   ctx.restore();
 }

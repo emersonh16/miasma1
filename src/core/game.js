@@ -23,6 +23,30 @@ miasma.init();
 const cam = makeCamera();
 const player = makePlayer();
 
+// Mouse state (screen coords)
+let mouseX = 0, mouseY = 0;
+addEventListener("mousemove", (e) => {
+  mouseX = e.clientX * devicePixelRatio;
+  mouseY = e.clientY * devicePixelRatio;
+});
+
+// Smooth wheel accumulation → step through modes
+const WHEEL_STEP = 100; // typical notch ~= 100
+let wheelAcc = 0;
+addEventListener("wheel", (e) => {
+  wheelAcc += e.deltaY;
+  // Scroll up (negative) → toward no-beam
+  while (wheelAcc <= -WHEEL_STEP) {
+    beam.modeUp(1);
+    wheelAcc += WHEEL_STEP;
+  }
+  // Scroll down (positive) → toward laser
+  while (wheelAcc >= WHEEL_STEP) {
+    beam.modeDown(1);
+    wheelAcc -= WHEEL_STEP;
+  }
+}, { passive: true });
+
 // --- loop ---
 let last = performance.now();
 function frame(now) {
@@ -32,23 +56,39 @@ function frame(now) {
   // UPDATE
   updatePlayer(player, dt);
   miasma.update(dt);
-  follow(cam, player);
 
-  // DRAW
+  // Lock camera to player (no lerp)
+  cam.x = player.x;
+  cam.y = player.y;
+
+  // Aim beam at mouse (player is screen center)
   const w = canvas.width / devicePixelRatio;
   const h = canvas.height / devicePixelRatio;
+  const aimX = mouseX / devicePixelRatio - w / 2;
+  const aimY = mouseY / devicePixelRatio - h / 2;
+  beam.setAngle(Math.atan2(aimY, aimX));
+
+  // DRAW
   clear(ctx, w, h);
+
+  // World-space: center the world on screen
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
   drawPlayer(ctx, cam, player);
-  miasma.draw(ctx, cam, w, h);
   beam.draw(ctx, cam, player);
+  ctx.restore();
+
+  // Screen-space overlays (stay after restore)
+  miasma.draw(ctx, cam, w, h);
 
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-// Simple mode toggle via number keys (1/2/3)
+// Keep number keys working (optional)
 addEventListener("keydown", (e) => {
   if (e.key === "1") beam.setMode("bubble");
   if (e.key === "2") beam.setMode("cone");
   if (e.key === "3") beam.setMode("laser");
+  if (e.key === "0") beam.setMode("off"); // quick kill switch
 });
