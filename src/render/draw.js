@@ -14,10 +14,9 @@ export function clear(ctx, w, h) {
 export function drawGrid(ctx, cam, w, h, cell = 64) {
   const halfW = w / 2;
   const halfH = h / 2;
-  const mod = (n, m) => ((n % m) + m) % m;
-
-  const startX = -halfW - mod(-cam.x, cell);
-  const startY = -halfH - mod(-cam.y, cell);
+  // Offset grid by camera position so it scrolls opposite to movement.
+  const startX = -halfW - (cam.x % cell);
+  const startY = -halfH - (cam.y % cell);
 
   ctx.save();
   ctx.lineWidth = 1;
