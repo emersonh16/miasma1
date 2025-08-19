@@ -10,7 +10,7 @@ const MARGIN = 4; // tile margin around the viewport
 
 // Internal state
 const S = {
-  density: null, // Uint8Array
+  density: null, // Uint8Array of 0/1
   width: 0,
   height: 0,
   ox: 0,
@@ -24,26 +24,10 @@ const S = {
   regrowIndex: 0,
 };
 
-function mulberry32(a) {
-  return function () {
-    a |= 0;
-    a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function hash(tx, ty, t) {
-  let h =
-    config.seed ^ (tx * 73856093) ^ (ty * 19349663) ^ (t * 83492791);
-  h ^= h >>> 16;
-  return h >>> 0;
-}
-
-function miasmaSeed(tx, ty, time) {
-  const rand = mulberry32(hash(tx, ty, Math.floor(time)));
-  return Math.floor(rand() * 256);
+// Binary seed: 1 = fog present, 0 = clear.
+// (Swap to noise threshold later if you want patterns.)
+function miasmaSeed(_tx, _ty, _time) {
+  return 1;
 }
 
 function enqueueColumn(tx) {
@@ -120,13 +104,13 @@ export function sample(wx, wy) {
     ty < S.oy ||
     ty >= S.oy + S.height
   )
-    return 255;
+    return 1; // treat outside as fog
   const ix = mod(tx - S.ox, S.width);
   const iy = mod(ty - S.oy, S.height);
   return S.density[iy * S.width + ix];
 }
 
-export function clearArea(wx, wy, r, amt = 64) {
+export function clearArea(wx, wy, r, _amt = 64) {
   const [cx, cy] = worldToTile(wx, wy, TILE_SIZE);
   const tr = Math.ceil(r / TILE_SIZE);
   let cleared = 0;
@@ -146,14 +130,10 @@ export function clearArea(wx, wy, r, amt = 64) {
       const ix = mod(tx - S.ox, S.width);
       const iy = mod(ty - S.oy, S.height);
       const idx = iy * S.width + ix;
-      const before = S.density[idx];
-      if (before > 0) {
-        const after = Math.max(0, before - amt);
-        if (after !== before) {
-          S.density[idx] = after;
-          cleared++;
-          budget--;
-        }
+      if (S.density[idx] !== 0) {
+        S.density[idx] = 0; // binary clear
+        cleared++;
+        budget--;
       }
     }
   }
@@ -163,9 +143,6 @@ export function clearArea(wx, wy, r, amt = 64) {
 export function update(dt, playerWX, playerWY, worldMotion = { x: 0, y: 0 }) {
   S.time += dt;
 
-  // Scroll when the viewport moves by whole tiles so the ring
-  // always covers the screen plus margin, while staying world-anchored.
-
   // 1) World scrolling (if your world ever moves under the camera)
   if (worldMotion.x || worldMotion.y) {
     const mdx = Math.round(worldMotion.x / TILE_SIZE);
@@ -173,10 +150,7 @@ export function update(dt, playerWX, playerWY, worldMotion = { x: 0, y: 0 }) {
     if (mdx || mdy) scroll(mdx, mdy);
   }
 
-  // 2) Viewport following (conveyor): compute the top-left visible tile
-  //    from player position and screen size, then keep a padded ring.
-  const VW = Math.ceil(innerWidth / TILE_SIZE);
-  const VH = Math.ceil(innerHeight / TILE_SIZE);
+  // 2) Conveyor follow: keep a padded ring covering the viewport
   const leftTile  = Math.floor((playerWX - innerWidth  / 2) / TILE_SIZE);
   const topTile   = Math.floor((playerWY - innerHeight / 2) / TILE_SIZE);
   const desiredOx = leftTile - MARGIN;
@@ -186,35 +160,21 @@ export function update(dt, playerWX, playerWY, worldMotion = { x: 0, y: 0 }) {
   const dy = desiredOy - S.oy;
   if (dx || dy) scroll(dx, dy);
 
-
-  // Removed player-centering scroll.
-  // Buffer origin (ox, oy) stays anchored in world tile space,
-  // so cleared areas remain where they were.
-
-
+  // Wind advection in whole tiles
   S.windX += S.windVX * dt;
   S.windY += S.windVY * dt;
 
   let sx = 0;
-  if (S.windX >= 1) {
-    sx = Math.floor(S.windX);
-    S.windX -= sx;
-  } else if (S.windX <= -1) {
-    sx = Math.ceil(S.windX);
-    S.windX -= sx;
-  }
+  if (S.windX >= 1) { sx = Math.floor(S.windX); S.windX -= sx; }
+  else if (S.windX <= -1) { sx = Math.ceil(S.windX); S.windX -= sx; }
 
   let sy = 0;
-  if (S.windY >= 1) {
-    sy = Math.floor(S.windY);
-    S.windY -= sy;
-  } else if (S.windY <= -1) {
-    sy = Math.ceil(S.windY);
-    S.windY -= sy;
-  }
+  if (S.windY >= 1) { sy = Math.floor(S.windY); S.windY -= sy; }
+  else if (S.windY <= -1) { sy = Math.ceil(S.windY); S.windY -= sy; }
 
   if (sx || sy) scroll(sx, sy);
 
+  // Edge fill
   let edgeBudget = config.maxEdgeFillPerTick;
   while (edgeBudget > 0 && S.fillQueue.length) {
     const { index, tx, ty } = S.fillQueue.shift();
@@ -222,15 +182,15 @@ export function update(dt, playerWX, playerWY, worldMotion = { x: 0, y: 0 }) {
     edgeBudget--;
   }
 
+  // Binary regrow
   let regrowBudget = config.maxTilesUpdatedPerTick;
   const total = S.width * S.height;
   while (regrowBudget > 0 && total > 0) {
     const idx = S.regrowIndex;
     const tx = S.ox + (idx % S.width);
     const ty = S.oy + Math.floor(idx / S.width);
-    const target = miasmaSeed(tx, ty, S.time);
-    const cur = S.density[idx];
-    if (cur < target) S.density[idx] = Math.min(target, cur + 1);
+    const target = miasmaSeed(tx, ty, S.time); // 0 or 1
+    if (S.density[idx] !== target) S.density[idx] = target;
     S.regrowIndex = (S.regrowIndex + 1) % total;
     regrowBudget--;
   }
@@ -241,19 +201,6 @@ export function draw(ctx, cam, w, h) {
   ctx.save();
   ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
 
-  const grd = ctx.createRadialGradient(
-    cam.x,
-    cam.y,
-    64,
-    cam.x,
-    cam.y,
-    Math.hypot(w, h) / 1.2
-  );
-  grd.addColorStop(0, "rgba(128,0,180,0.05)");
-  grd.addColorStop(1, "rgba(128,0,180,0.35)");
-  ctx.fillStyle = grd;
-  ctx.fillRect(cam.x - w / 2, cam.y - h / 2, w, h);
-
   let budget = config.maxDrawTilesPerFrame;
   if (budget > 0) {
     const left = Math.floor((cam.x - w / 2) / TILE_SIZE);
@@ -263,18 +210,11 @@ export function draw(ctx, cam, w, h) {
 
     for (let ty = top; ty <= bottom && budget > 0; ty++) {
       for (let tx = left; tx <= right && budget > 0; tx++) {
-        if (
-          tx < S.ox ||
-          tx >= S.ox + S.width ||
-          ty < S.oy ||
-          ty >= S.oy + S.height
-        )
-          continue;
+        if (tx < S.ox || tx >= S.ox + S.width || ty < S.oy || ty >= S.oy + S.height) continue;
         const ix = mod(tx - S.ox, S.width);
         const iy = mod(ty - S.oy, S.height);
-        const d = S.density[iy * S.width + ix];
-        if (d === 0) continue;
-        ctx.fillStyle = `rgba(128,0,180,${(d / 255).toFixed(3)})`;
+        if (S.density[iy * S.width + ix] !== 1) continue; // binary
+        ctx.fillStyle = "rgba(128,0,180,0.35)";
         ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
         budget--;
       }
