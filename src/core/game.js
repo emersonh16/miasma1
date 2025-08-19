@@ -1,12 +1,12 @@
 import { config } from "./config.js";
-import { initInput } from "./input.js";
+import { initInput, axis } from "./input.js";
 import { makeCamera, follow } from "./camera.js";
 import * as miasma from "../systems/miasma/index.js";
 import * as beam from "../systems/beam/index.js";
 import { makePlayer, updatePlayer, drawPlayer } from "../entities/player.js";
 import { clear, drawGrid } from "../render/draw.js";
 import * as chunks from "../world/chunks.js";
-import { raycast } from "../systems/beam/index.js";
+
 
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("game"));
@@ -56,15 +56,26 @@ function frame(now) {
   const dt = Math.min(0.033, (now - last) / 1000);
   last = now;
 
-  // UPDATE
-  updatePlayer(player, dt);
-  chunks.streamAround(player.x, player.y);
-  const worldMotion = { x: 0, y: 0 };
-  miasma.update(dt, player.x, player.y, worldMotion);
+  // UPDATE — two records: move the world (camera), keep player on the spindle
+  const a = axis();
+  const speed = config.player.speed;
+  const prevCamX = cam.x, prevCamY = cam.y;
 
-  // Lock camera to player (no lerp)
-  cam.x = player.x;
-  cam.y = player.y;
+  // Slide the land record under the spindle by moving the camera
+  cam.x += a.x * speed * dt;
+  cam.y += a.y * speed * dt;
+
+  // Player "lives" at the camera center for drawing/aim
+  player.x = cam.x;
+  player.y = cam.y;
+
+  // Stream chunks around world/camera center
+  chunks.streamAround(cam.x, cam.y);
+
+  // Real world motion for miasma conveyor
+  const worldMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
+  miasma.update(dt, cam.x, cam.y, worldMotion);
+
 
   // Aim beam at mouse (player is screen center)
   const w = canvas.width / devicePixelRatio;
