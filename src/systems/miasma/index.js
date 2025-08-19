@@ -182,14 +182,18 @@ let regrowBudget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?
 export function draw(ctx, cam, w, h) {
   // World-space: share transform with grid/player
   ctx.save();
-  ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
+  // include fractional wind remainder to avoid per-tile "jumps"
+  const fracOffX = (S.windX || 0) * TILE_SIZE;
+  const fracOffY = (S.windY || 0) * TILE_SIZE;
+  ctx.translate(-cam.x + w / 2 - fracOffX, -cam.y + h / 2 - fracOffY);
 
-let budget = (MC.maxDrawTilesPerFrame ?? config.maxDrawTilesPerFrame ?? 4096);
+  let budget = (MC.maxDrawTilesPerFrame ?? config.maxDrawTilesPerFrame ?? 4096);
   if (budget > 0) {
     const left   = Math.floor((cam.x - w / 2) / TILE_SIZE);
     const right  = Math.floor((cam.x + w / 2) / TILE_SIZE);
     const top    = Math.floor((cam.y - h / 2) / TILE_SIZE);
     const bottom = Math.floor((cam.y + h / 2) / TILE_SIZE);
+
 
        ctx.fillStyle = (MC.color ?? "rgba(128,0,180,0.35)");
 

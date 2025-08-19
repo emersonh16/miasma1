@@ -25,14 +25,7 @@ function resize() {
 }
 addEventListener("resize", resize);
 resize();
-
-
-// --- init ---
 initInput();
-// after canvas size & transform are set
-const viewW = canvas.width / devicePixelRatio;
-const viewH = canvas.height / devicePixelRatio;
-miasma.init(viewW, viewH);
 
 // Simple baseline wind gear you can tune:
 wind.clearGears();
