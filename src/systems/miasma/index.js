@@ -21,12 +21,20 @@ const S = {
   height: 0,
   ox: 0,
   oy: 0,
+
+  // Wind fractional phase (tiles)
   windX: 0,
   windY: 0,
+
+  // Camera fractional shift (tiles) — accumulates worldMotion / TILE_SIZE
+  camShiftX: 0,
+  camShiftY: 0,
+
   time: 0,
   fillQueue: [],   // { index, tx, ty }
   regrowIndex: 0,
 };
+
 
 // Permanently-cleared world tiles
 const clearedTiles = new Set();
@@ -147,12 +155,22 @@ export function clearArea(wx, wy, r, _amt = 64) {
 export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, viewW = innerWidth, viewH = innerHeight) {
   S.time += dt;
 
-  // 1) Apply world motion in whole tiles
-  if (worldMotion.x || worldMotion.y) {
-    const mdx = Math.trunc(worldMotion.x / TILE_SIZE);
-    const mdy = Math.trunc(worldMotion.y / TILE_SIZE);
-    if (mdx || mdy) scroll(mdx, mdy);
-  }
+// 1) Apply world motion using fractional accumulators (tiles)
+//    Only scroll when we've crossed whole tiles; keep sub-tile remainder.
+if (worldMotion.x || worldMotion.y) {
+  S.camShiftX += (worldMotion.x || 0) / TILE_SIZE;
+  S.camShiftY += (worldMotion.y || 0) / TILE_SIZE;
+
+  let cmx = 0, cmy = 0;
+  if (S.camShiftX >= 1)  { cmx = Math.floor(S.camShiftX);  S.camShiftX -= cmx; }
+  else if (S.camShiftX <= -1) { cmx = Math.ceil(S.camShiftX); S.camShiftX -= cmx; }
+
+  if (S.camShiftY >= 1)  { cmy = Math.floor(S.camShiftY);  S.camShiftY -= cmy; }
+  else if (S.camShiftY <= -1) { cmy = Math.ceil(S.camShiftY); S.camShiftY -= cmy; }
+
+  if (cmx || cmy) scroll(cmx, cmy);
+}
+
 
 // 2) Wind advection FIRST — jump in N-tile bursts to avoid tug-of-war
 const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
