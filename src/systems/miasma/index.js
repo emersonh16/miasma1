@@ -221,50 +221,49 @@ export function update(dt, playerWX, playerWY, worldMotion = { x: 0, y: 0 }) {
 }
 
 export function draw(ctx, cam, w, h) {
-  // Lightweight overlay preview anchored to world space so it scrolls
-  // opposite to camera movement. Origin is at world (0,0).
-  const cx = w / 2 - cam.x;
-  const cy = h / 2 - cam.y;
+  // World-space aligned fog, uses same transform as grid/player
+  ctx.save();
+  ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
+
   const grd = ctx.createRadialGradient(
-    cx,
-    cy,
+    cam.x,
+    cam.y,
     64,
-    cx,
-    cy,
+    cam.x,
+    cam.y,
     Math.hypot(w, h) / 1.2
   );
   grd.addColorStop(0, "rgba(128,0,180,0.05)");
   grd.addColorStop(1, "rgba(128,0,180,0.35)");
   ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(cam.x - w / 2, cam.y - h / 2, w, h);
 
   let budget = config.maxDrawTilesPerFrame;
-  if (budget <= 0) return;
+  if (budget > 0) {
+    const left = Math.floor((cam.x - w / 2) / TILE_SIZE);
+    const right = Math.floor((cam.x + w / 2) / TILE_SIZE);
+    const top = Math.floor((cam.y - h / 2) / TILE_SIZE);
+    const bottom = Math.floor((cam.y + h / 2) / TILE_SIZE);
 
-  const left = Math.floor((cam.x - w / 2) / TILE_SIZE);
-  const right = Math.floor((cam.x + w / 2) / TILE_SIZE);
-  const top = Math.floor((cam.y - h / 2) / TILE_SIZE);
-  const bottom = Math.floor((cam.y + h / 2) / TILE_SIZE);
-
-  for (let ty = top; ty <= bottom && budget > 0; ty++) {
-    for (let tx = left; tx <= right && budget > 0; tx++) {
-      if (
-        tx < S.ox ||
-        tx >= S.ox + S.width ||
-        ty < S.oy ||
-        ty >= S.oy + S.height
-      )
-        continue;
-      const ix = mod(tx - S.ox, S.width);
-      const iy = mod(ty - S.oy, S.height);
-      const d = S.density[iy * S.width + ix];
-      if (d === 0) continue;
-      ctx.fillStyle = `rgba(128,0,180,${(d / 255).toFixed(3)})`;
-      const x = tx * TILE_SIZE - cam.x + w / 2;
-      const y = ty * TILE_SIZE - cam.y + h / 2;
-      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-      budget--;
+    for (let ty = top; ty <= bottom && budget > 0; ty++) {
+      for (let tx = left; tx <= right && budget > 0; tx++) {
+        if (
+          tx < S.ox ||
+          tx >= S.ox + S.width ||
+          ty < S.oy ||
+          ty >= S.oy + S.height
+        )
+          continue;
+        const ix = mod(tx - S.ox, S.width);
+        const iy = mod(ty - S.oy, S.height);
+        const d = S.density[iy * S.width + ix];
+        if (d === 0) continue;
+        ctx.fillStyle = `rgba(128,0,180,${(d / 255).toFixed(3)})`;
+        ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        budget--;
+      }
     }
   }
-}
 
+  ctx.restore();
+}

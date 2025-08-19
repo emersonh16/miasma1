@@ -1,3 +1,5 @@
+import * as miasma from "../miasma/index.js";
+
 // Modes are ordered low→high: laser → cone → bubble → off (no-beam)
 const MODES = ["laser", "cone", "bubble", "off"];
 const state = {
@@ -21,10 +23,38 @@ export function modeDown(steps = 1) { // toward "laser"
 
 export function setAngle(rad) { state.angle = rad || 0; }
 
+
+
 export function raycast(origin, dir, params = {}) {
-  // Placeholder: returns no hits; clears a little fog straight ahead.
-  return { hits: [], clearedFog: 3 };
+  const { mode = MODES[state.modeIndex] } = params;
+  let clearedFog = 0;
+
+  if (mode === "laser") {
+    // narrow line of small clears
+    const steps = 12;
+    const stepSize = 16;
+    for (let i = 1; i <= steps; i++) {
+      const wx = origin.x + Math.cos(dir) * i * stepSize;
+      const wy = origin.y + Math.sin(dir) * i * stepSize;
+      clearedFog += miasma.clearArea(wx, wy, 24, 80);
+    }
+  } else if (mode === "cone") {
+    // short forward cone
+    const steps = 6;
+    const stepSize = 32;
+    for (let i = 1; i <= steps; i++) {
+      const wx = origin.x + Math.cos(dir) * i * stepSize;
+      const wy = origin.y + Math.sin(dir) * i * stepSize;
+      clearedFog += miasma.clearArea(wx, wy, 64, 64);
+    }
+  } else if (mode === "bubble") {
+    // around the player
+    clearedFog += miasma.clearArea(origin.x, origin.y, 90, 90);
+  }
+
+  return { hits: [], clearedFog };
 }
+
 
 export function draw(ctx, cam, player) {
   const mode = MODES[state.modeIndex];
@@ -60,3 +90,6 @@ export function draw(ctx, cam, player) {
 
   ctx.restore();
 }
+
+export function getAngle() { return state.angle; }
+

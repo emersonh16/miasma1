@@ -6,6 +6,7 @@ import * as beam from "../systems/beam/index.js";
 import { makePlayer, updatePlayer, drawPlayer } from "../entities/player.js";
 import { clear, drawGrid } from "../render/draw.js";
 import * as chunks from "../world/chunks.js";
+import { raycast } from "../systems/beam/index.js";
 
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("game"));
@@ -71,6 +72,9 @@ function frame(now) {
   const aimX = mouseX / devicePixelRatio - w / 2;
   const aimY = mouseY / devicePixelRatio - h / 2;
   beam.setAngle(Math.atan2(aimY, aimX));
+  beam.raycast(player, beam.getAngle());
+
+
 
   // DRAW
   clear(ctx, w, h);
