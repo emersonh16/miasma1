@@ -7,14 +7,16 @@ export const config = {
   maxDrawCalls: 2000,
 
   // Miasma tuning (new)
-  miasma: {
-    tileSize: 16,             // try 16; go 8 if you want even finer
-    marginTiles: 4,
-    maxEdgeFillPerTick: 1500, // raise for small tiles
-    maxTilesUpdatedPerTick: 6000,
-    maxDrawTilesPerFrame: 14000,
-    color: "rgba(128,0,180,0.35)",
-  },
+ miasma: {
+  tileSize: 4,              // << super fine fog cells
+  marginTiles: 4,
+  maxEdgeFillPerTick: 3000, // bump budgets to keep up
+  maxTilesUpdatedPerTick: 12000,
+  maxDrawTilesPerFrame: 20000,
+  color: "rgba(128,0,180,0.35)",
+},
+
+
 
   // Fallbacks still used by code if miasma.* not present
   maxEdgeFillPerTick: 128,

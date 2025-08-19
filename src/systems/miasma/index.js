@@ -63,9 +63,9 @@ function scroll(dx, dy) {
   else if (dy < 0) for (let i = 0; i < -dy; i++) { S.oy--; enqueueRow(S.oy); }
 }
 
-export function init() {
-  const VW = Math.ceil(innerWidth / TILE_SIZE);
-  const VH = Math.ceil(innerHeight / TILE_SIZE);
+export function init(viewW, viewH) {
+  const VW = Math.ceil(viewW / TILE_SIZE);
+  const VH = Math.ceil(viewH / TILE_SIZE);
   S.width = VW + MARGIN * 2;
   S.height = VH + MARGIN * 2;
   S.ox = 0;
@@ -85,6 +85,7 @@ export function init() {
   S.windY = 0;
   S.time = 0;
 }
+
 
 export function sample(wx, wy) {
   const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
@@ -125,26 +126,21 @@ export function clearArea(wx, wy, r, _amt = 64) {
   return cleared;
 }
 
-export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }) {
+export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, viewW = innerWidth, viewH = innerHeight) {
   S.time += dt;
 
-  // 1) World scrolling by camera/world motion (whole tiles)
-  if (worldMotion.x || worldMotion.y) {
-    const mdx = Math.round(worldMotion.x / TILE_SIZE);
-    const mdy = Math.round(worldMotion.y / TILE_SIZE);
-    if (mdx || mdy) scroll(mdx, mdy);
-  }
+  // 1) worldMotion scroll (unchanged)...
 
-  // 2) Conveyor follow: keep a padded ring around the viewport
-  const leftTile  = Math.floor((centerWX - innerWidth  / 2) / TILE_SIZE);
-  const topTile   = Math.floor((centerWY - innerHeight / 2) / TILE_SIZE);
+  // 2) Conveyor follow: anchor ring to the actual view size
+  const leftTile = Math.floor((centerWX - viewW / 2) / TILE_SIZE);
+  const topTile  = Math.floor((centerWY - viewH / 2) / TILE_SIZE);
   const desiredOx = leftTile - MARGIN;
   const desiredOy = topTile  - MARGIN;
-
   const dx = desiredOx - S.ox;
   const dy = desiredOy - S.oy;
   if (dx || dy) scroll(dx, dy);
 
+ 
   // 3) Wind advection (tiles/sec from modular wind gears)
   const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
   S.windX += (wv.vxTilesPerSec || 0) * dt;
@@ -195,17 +191,48 @@ let budget = (MC.maxDrawTilesPerFrame ?? config.maxDrawTilesPerFrame ?? 4096);
     const top    = Math.floor((cam.y - h / 2) / TILE_SIZE);
     const bottom = Math.floor((cam.y + h / 2) / TILE_SIZE);
 
+       ctx.fillStyle = (MC.color ?? "rgba(128,0,180,0.35)");
+
     for (let ty = top; ty <= bottom && budget > 0; ty++) {
-      for (let tx = left; tx <= right && budget > 0; tx++) {
-        if (tx < S.ox || tx >= S.ox + S.width || ty < S.oy || ty >= S.oy + S.height) continue;
+      let runStart = null; // world-tile X where a run of fog==1 begins
+
+      // walk across this row left..right
+      for (let tx = left; tx <= right; tx++) {
+        if (tx < S.ox || tx >= S.ox + S.width || ty < S.oy || ty >= S.oy + S.height) {
+          // out of ring → flush any open run
+          if (runStart !== null) {
+            const wTiles = tx - runStart;
+            ctx.fillRect(runStart * TILE_SIZE, ty * TILE_SIZE, wTiles * TILE_SIZE, TILE_SIZE);
+            runStart = null;
+            if (--budget <= 0) break;
+          }
+          continue;
+        }
+
         const ix = mod(tx - S.ox, S.width);
         const iy = mod(ty - S.oy, S.height);
-        if (S.density[iy * S.width + ix] !== 1) continue; // binary
-        ctx.fillStyle = (MC.color ?? "rgba(128,0,180,0.35)");
-        ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        const filled = (S.density[iy * S.width + ix] === 1);
+
+        if (filled) {
+          if (runStart === null) runStart = tx; // start new run
+        } else if (runStart !== null) {
+          // end run at tx
+          const wTiles = tx - runStart;
+          ctx.fillRect(runStart * TILE_SIZE, ty * TILE_SIZE, wTiles * TILE_SIZE, TILE_SIZE);
+          runStart = null;
+          if (--budget <= 0) break;
+        }
+      }
+
+      // flush trailing run at end of row
+      if (budget > 0 && runStart !== null) {
+        const wTiles = (right + 1) - runStart;
+        ctx.fillRect(runStart * TILE_SIZE, ty * TILE_SIZE, wTiles * TILE_SIZE, TILE_SIZE);
+        runStart = null;
         budget--;
       }
-     }
+    }
+
   }
 
   ctx.restore();

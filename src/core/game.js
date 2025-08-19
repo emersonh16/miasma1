@@ -17,13 +17,23 @@ function resize() {
   canvas.width = Math.floor(innerWidth * devicePixelRatio);
   canvas.height = Math.floor(innerHeight * devicePixelRatio);
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+
+  // Re-init miasma with the real view size (in world units == screen px)
+  const viewW = canvas.width / devicePixelRatio;
+  const viewH = canvas.height / devicePixelRatio;
+  miasma.init(viewW, viewH);
 }
 addEventListener("resize", resize);
 resize();
 
+
 // --- init ---
 initInput();
-miasma.init();
+// after canvas size & transform are set
+const viewW = canvas.width / devicePixelRatio;
+const viewH = canvas.height / devicePixelRatio;
+miasma.init(viewW, viewH);
+
 // Simple baseline wind gear you can tune:
 wind.clearGears();
 // Example: constant wind to the left at 5 tiles/sec
@@ -83,14 +93,16 @@ function frame(now) {
   // Stream chunks around world/camera center
   chunks.streamAround(cam.x, cam.y);
 
-  // Real world motion for miasma conveyor
-  const worldMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
-  miasma.update(dt, cam.x, cam.y, worldMotion);
-
-
-  // Aim beam at mouse (player is screen center)
+  // Compute view size once per frame
   const w = canvas.width / devicePixelRatio;
   const h = canvas.height / devicePixelRatio;
+
+  // Real world motion for miasma conveyor
+  const worldMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
+  miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
+
+  // Aim beam at mouse (player is screen center)
+
   const aimX = mouseX / devicePixelRatio - w / 2;
   const aimY = mouseY / devicePixelRatio - h / 2;
   beam.setAngle(Math.atan2(aimY, aimX));

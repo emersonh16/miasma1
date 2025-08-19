@@ -1,4 +1,6 @@
 import * as miasma from "../miasma/index.js";
+const FOG_T = () => miasma.getTileSize(); // world units per fog tile
+
 
 // Modes are ordered low→high: laser → cone → bubble → off (no-beam)
 const MODES = ["laser", "cone", "bubble", "off"];
@@ -27,33 +29,38 @@ export function setAngle(rad) { state.angle = rad || 0; }
 
 export function raycast(origin, dir, params = {}) {
   const { mode = MODES[state.modeIndex] } = params;
+  const T = FOG_T();
   let clearedFog = 0;
 
   if (mode === "laser") {
-    // narrow line of small clears
-    const steps = 12;
-    const stepSize = 16;
+    // thin line: many small circles along the ray
+    const steps = 18;           // more hits for small tiles
+    const stepSize = 2 * T;     // advance ~2 tiles per sample
+    const radius = 3 * T;       // ~3 tiles wide
     for (let i = 1; i <= steps; i++) {
       const wx = origin.x + Math.cos(dir) * i * stepSize;
       const wy = origin.y + Math.sin(dir) * i * stepSize;
-      clearedFog += miasma.clearArea(wx, wy, 24, 80);
+      clearedFog += miasma.clearArea(wx, wy, radius, 999);
     }
   } else if (mode === "cone") {
-    // short forward cone
-    const steps = 6;
-    const stepSize = 32;
+    // broader, shorter fan down the aim direction
+    const steps = 8;
+    const stepSize = 2 * T;
+    const radius = 5 * T;       // ~5 tiles
     for (let i = 1; i <= steps; i++) {
       const wx = origin.x + Math.cos(dir) * i * stepSize;
       const wy = origin.y + Math.sin(dir) * i * stepSize;
-      clearedFog += miasma.clearArea(wx, wy, 64, 64);
+      clearedFog += miasma.clearArea(wx, wy, radius, 999);
     }
   } else if (mode === "bubble") {
-    // around the player
-    clearedFog += miasma.clearArea(origin.x, origin.y, 90, 90);
+    // centered burst
+    const radius = 7 * T;       // ~7 tiles around player
+    clearedFog += miasma.clearArea(origin.x, origin.y, radius, 999);
   }
 
   return { hits: [], clearedFog };
 }
+
 
 
 export function draw(ctx, cam, player) {
