@@ -33,33 +33,34 @@ export function raycast(origin, dir, params = {}) {
   let clearedFog = 0;
 
   if (mode === "laser") {
-    // thin line: many small circles along the ray
-    const steps = 18;           // more hits for small tiles
-    const stepSize = 2 * T;     // advance ~2 tiles per sample
-    const radius = 3 * T;       // ~3 tiles wide
+    // bigger, longer line
+    const steps = 24;       // was 18
+    const stepSize = 3 * T; // was 2T
+    const radius = 6 * T;   // was 3T
     for (let i = 1; i <= steps; i++) {
       const wx = origin.x + Math.cos(dir) * i * stepSize;
       const wy = origin.y + Math.sin(dir) * i * stepSize;
       clearedFog += miasma.clearArea(wx, wy, radius, 999);
     }
   } else if (mode === "cone") {
-    // broader, shorter fan down the aim direction
-    const steps = 8;
-    const stepSize = 2 * T;
-    const radius = 5 * T;       // ~5 tiles
+    // larger forward fan
+    const steps = 10;       // was 8
+    const stepSize = 3 * T; // was 2T
+    const radius = 10 * T;  // was 5T
     for (let i = 1; i <= steps; i++) {
       const wx = origin.x + Math.cos(dir) * i * stepSize;
       const wy = origin.y + Math.sin(dir) * i * stepSize;
       clearedFog += miasma.clearArea(wx, wy, radius, 999);
     }
   } else if (mode === "bubble") {
-    // centered burst
-    const radius = 7 * T;       // ~7 tiles around player
+    // much larger aura
+    const radius = 14 * T; // was 7T
     clearedFog += miasma.clearArea(origin.x, origin.y, radius, 999);
   }
 
   return { hits: [], clearedFog };
 }
+
 
 
 
@@ -74,13 +75,13 @@ export function draw(ctx, cam, player) {
 
   if (mode === "bubble") {
     ctx.beginPath();
-    ctx.arc(0, 0, 90, 0, Math.PI * 2);
+    ctx.arc(0, 0, 180, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,240,160,0.25)";
     ctx.fill();
   } else if (mode === "laser") {
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(180, 0);
+    ctx.lineTo(360, 0);
     ctx.lineWidth = 4;
     ctx.strokeStyle = "rgba(255,240,160,0.9)";
     ctx.stroke();
@@ -88,8 +89,8 @@ export function draw(ctx, cam, player) {
     // cone
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(140, -22);
-    ctx.lineTo(140, 22);
+    ctx.lineTo(280, -44);
+    ctx.lineTo(280, 44);
     ctx.closePath();
     ctx.fillStyle = "rgba(255,240,160,0.35)";
     ctx.fill();
