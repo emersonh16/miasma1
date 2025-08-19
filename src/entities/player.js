@@ -2,7 +2,7 @@ import { axis } from "../core/input.js";
 import { config } from "../core/config.js";
 
 export function makePlayer() {
-  return { x: 0, y: 0, r: 20 };
+  return { x: 0, y: 0, r: 16 };
 }
 
 export function updatePlayer(p, dt) {
