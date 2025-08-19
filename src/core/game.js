@@ -5,7 +5,7 @@ import * as miasma from "../systems/miasma/index.js";
 import * as beam from "../systems/beam/index.js";
 import { makePlayer, updatePlayer, drawPlayer } from "../entities/player.js";
 import { clear, drawGrid } from "../render/draw.js";
-import { streamAround } from "../world/chunks.js";
+import * as chunks from "../world/chunks.js";
 
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("game"));
@@ -57,8 +57,9 @@ function frame(now) {
 
   // UPDATE
   updatePlayer(player, dt);
-  streamAround(player.x, player.y);
-  miasma.update(dt);
+  chunks.streamAround(player.x, player.y);
+  const worldMotion = { x: 0, y: 0 };
+  miasma.update(dt, player.x, player.y, worldMotion);
 
   // Lock camera to player (no lerp)
   cam.x = player.x;

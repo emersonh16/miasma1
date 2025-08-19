@@ -5,5 +5,6 @@ export const config = {
   maxDrawCalls: 2000,
   maxEdgeFillPerTick: 128,
   maxTilesUpdatedPerTick: 256,
+  maxDrawTilesPerFrame: 4096,
   player: { speed: 140 },
 };
