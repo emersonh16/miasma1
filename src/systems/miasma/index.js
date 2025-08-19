@@ -1,17 +1,22 @@
 // Public surface kept tiny so internals can change freely.
+import { worldToTile } from "../../core/coords.js";
+
+const TILE_SIZE = 64; // world units per tile
 const S = { density: new Map() }; // key "x,y" -> 0..255
 
 export function init() { /* seed buffers later */ }
 
 export function sample(wx, wy) {
+  const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
   // Simple radial gradient placeholder (dense away from origin).
-  const d = Math.min(255, Math.floor(Math.hypot(wx, wy) * 0.2));
+  const d = Math.min(255, Math.floor(Math.hypot(tx, ty) * 0.2));
   return d;
 }
 
 export function clearArea(wx, wy, r, amt = 64) {
+  const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
   // Placeholder: no persistence yet; return fake cleared count.
-  return Math.max(0, Math.floor(r * amt * 0.1));
+  return Math.max(0, Math.floor((r / TILE_SIZE) * amt * 0.1));
 }
 
 export function update(dt) {
