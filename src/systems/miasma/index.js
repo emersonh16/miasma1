@@ -9,6 +9,10 @@ import * as wind from "../wind/index.js";
 const MC = (config.miasma ?? {});
 const TILE_SIZE = MC.tileSize ?? 64;
 const MARGIN = MC.marginTiles ?? 4;
+const WIND_STEP_TILES = MC.windStepTiles ?? 4;   // jump every N tiles of wind
+const CLAMP_HYST      = MC.clampHysteresis ?? 1; // require margin < (MARGIN - HYST) to clamp
+
+
 
 // Internal state (binary: 0 = clear, 1 = fog)
 const S = {
@@ -150,42 +154,48 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
     if (mdx || mdy) scroll(mdx, mdy);
   }
 
-  // 2) Wind advection FIRST
-  const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
-  S.windX += (wv.vxTilesPerSec || 0) * dt;
-  S.windY += (wv.vyTilesPerSec || 0) * dt;
+// 2) Wind advection FIRST — jump in N-tile bursts to avoid tug-of-war
+const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
+S.windX += (wv.vxTilesPerSec || 0) * dt;  // tiles
+S.windY += (wv.vyTilesPerSec || 0) * dt;  // tiles
 
-  let sx = 0, sy = 0;
-  if (S.windX >= 1) { sx = Math.floor(S.windX); S.windX -= sx; }
-  else if (S.windX <= -1) { sx = Math.ceil(S.windX); S.windX -= sx; }
-  if (S.windY >= 1) { sy = Math.floor(S.windY); S.windY -= sy; }
-  else if (S.windY <= -1) { sy = Math.ceil(S.windY); S.windY -= sy; }
-  if (sx || sy) scroll(sx, sy);
+let sx = 0, sy = 0;
+// jump only when we’ve accumulated at least WIND_STEP_TILES
+if (Math.abs(S.windX) >= WIND_STEP_TILES) {
+  sx = (S.windX > 0 ? 1 : -1) * WIND_STEP_TILES;
+  S.windX -= sx; // keep remainder
+}
+if (Math.abs(S.windY) >= WIND_STEP_TILES) {
+  sy = (S.windY > 0 ? 1 : -1) * WIND_STEP_TILES;
+  S.windY -= sy; // keep remainder
+}
+if (sx || sy) scroll(sx, sy);
 
-  // 3) Margin clamp (top up edges only)
-  const VW = Math.ceil(viewW / TILE_SIZE);
-  const VH = Math.ceil(viewH / TILE_SIZE);
-  const camLeft   = Math.floor((centerWX - viewW / 2) / TILE_SIZE);
-  const camRight  = camLeft + VW - 1;
-  const camTop    = Math.floor((centerWY - viewH / 2) / TILE_SIZE);
-  const camBottom = camTop + VH - 1;
+// 3) Margin clamp with hysteresis — only top up starving edges
+const VW = Math.ceil(viewW / TILE_SIZE);
+const VH = Math.ceil(viewH / TILE_SIZE);
+const camLeft   = Math.floor((centerWX - viewW / 2) / TILE_SIZE);
+const camRight  = camLeft + VW - 1;
+const camTop    = Math.floor((centerWY - viewH / 2) / TILE_SIZE);
+const camBottom = camTop + VH - 1;
 
-  if (camLeft - S.ox < MARGIN) {
-    const need = MARGIN - (camLeft - S.ox);
-    if (need > 0) scroll(-need, 0);
-  }
-  if ((S.ox + S.width - 1) - camRight < MARGIN) {
-    const need = MARGIN - ((S.ox + S.width - 1) - camRight);
-    if (need > 0) scroll(need, 0);
-  }
-  if (camTop - S.oy < MARGIN) {
-    const need = MARGIN - (camTop - S.oy);
-    if (need > 0) scroll(0, -need);
-  }
-  if ((S.oy + S.height - 1) - camBottom < MARGIN) {
-    const need = MARGIN - ((S.oy + S.height - 1) - camBottom);
-    if (need > 0) scroll(0, need);
-  }
+if (camLeft - S.ox < (MARGIN - CLAMP_HYST)) {
+  const need = (MARGIN - CLAMP_HYST) - (camLeft - S.ox);
+  if (need > 0) scroll(-need, 0);
+}
+if ((S.ox + S.width - 1) - camRight < (MARGIN - CLAMP_HYST)) {
+  const need = (MARGIN - CLAMP_HYST) - ((S.ox + S.width - 1) - camRight);
+  if (need > 0) scroll(need, 0);
+}
+if (camTop - S.oy < (MARGIN - CLAMP_HYST)) {
+  const need = (MARGIN - CLAMP_HYST) - (camTop - S.oy);
+  if (need > 0) scroll(0, -need);
+}
+if ((S.oy + S.height - 1) - camBottom < (MARGIN - CLAMP_HYST)) {
+  const need = (MARGIN - CLAMP_HYST) - ((S.oy + S.height - 1) - camBottom);
+  if (need > 0) scroll(0, need);
+}
+
 
   // 4) Edge fill
   let edgeBudget = (MC.maxEdgeFillPerTick ?? config.maxEdgeFillPerTick ?? 128);
@@ -212,10 +222,9 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
 export function draw(ctx, cam, w, h) {
   ctx.save();
 
-  // include fractional wind remainder (sub-pixel smoothness)
-  const fracOffX = (S.windX || 0) * TILE_SIZE;
-  const fracOffY = (S.windY || 0) * TILE_SIZE;
-  ctx.translate(-cam.x + w / 2 - fracOffX, -cam.y + h / 2 - fracOffY);
+// jumpy wind test: no sub-pixel offset during draw
+ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
+
 
   let budget = (MC.maxDrawTilesPerFrame ?? config.maxDrawTilesPerFrame ?? 4096);
   if (budget > 0) {
