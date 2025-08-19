@@ -1,16 +1,14 @@
 // Rolling miasma field implemented as a ring buffer anchored to
-// world‑tile coordinates `(ox, oy)`. The buffer follows the world via
+// world-tile coordinates `(ox, oy)`. The buffer follows the world via
 // integer tile scrolls and edge fills seeded deterministically.
 
 import { worldToTile, mod } from "../../core/coords.js";
 import { config } from "../../core/config.js";
 import * as wind from "../wind/index.js";
 
-
 const MC = (config.miasma ?? {});
 const TILE_SIZE = MC.tileSize ?? 64;
 const MARGIN = MC.marginTiles ?? 4;
-
 
 // Internal state (binary: 0 = clear, 1 = fog)
 const S = {
@@ -21,8 +19,6 @@ const S = {
   oy: 0,
   windX: 0,
   windY: 0,
-  windVX: 0.1,     // tiles per second (x)
-  windVY: 0,       // tiles per second (y)
   time: 0,
   fillQueue: [],   // { index, tx, ty }
   regrowIndex: 0,
@@ -32,27 +28,10 @@ const S = {
 const clearedTiles = new Set();
 const tkey = (tx, ty) => `${tx},${ty}`;
 
-// Fast integer hash (world anchored)
-function hash32(x, y, seed = (config.seed|0)) {
-  // Thomas Wang-ish 2D mix
-  let h = x | 0;
-  h = Math.imul(h ^ (h >>> 16), 0x7feb352d);
-  h = Math.imul(h ^ (h >>> 15), 0x846ca68b);
-  let k = y | 0;
-  k = Math.imul(k ^ (k >>> 16), 0x7feb352d);
-  k = Math.imul(k ^ (k >>> 15), 0x846ca68b);
-  let r = (h ^ k ^ seed) >>> 0;
-  // one more mix
-  r ^= r >>> 16; r = Math.imul(r, 0x7feb352d);
-  r ^= r >>> 15; r = Math.imul(r, 0x846ca68b);
-  return r >>> 0;
-}
-
 // Binary seed: full fog unless permanently cleared
 function miasmaSeed(tx, ty, _time) {
   return clearedTiles.has(tkey(tx, ty)) ? 0 : 1;
 }
-
 
 function enqueueColumn(tx) {
   const ix = mod(tx - S.ox, S.width);
@@ -73,11 +52,29 @@ function enqueueRow(ty) {
 }
 
 function scroll(dx, dy) {
-  if (dx > 0) for (let i = 0; i < dx; i++) { S.ox++; enqueueColumn(S.ox + S.width - 1); }
-  else if (dx < 0) for (let i = 0; i < -dx; i++) { S.ox--; enqueueColumn(S.ox); }
+  if (dx > 0) {
+    for (let i = 0; i < dx; i++) {
+      S.ox++;
+      enqueueColumn(S.ox + S.width - 1);
+    }
+  } else if (dx < 0) {
+    for (let i = 0; i < -dx; i++) {
+      S.ox--;
+      enqueueColumn(S.ox);
+    }
+  }
 
-  if (dy > 0) for (let i = 0; i < dy; i++) { S.oy++; enqueueRow(S.oy + S.height - 1); }
-  else if (dy < 0) for (let i = 0; i < -dy; i++) { S.oy--; enqueueRow(S.oy); }
+  if (dy > 0) {
+    for (let i = 0; i < dy; i++) {
+      S.oy++;
+      enqueueRow(S.oy + S.height - 1);
+    }
+  } else if (dy < 0) {
+    for (let i = 0; i < -dy; i++) {
+      S.oy--;
+      enqueueRow(S.oy);
+    }
+  }
 }
 
 export function init(viewW, viewH) {
@@ -96,13 +93,13 @@ export function init(viewW, viewH) {
       S.density[y * S.width + x] = miasmaSeed(tx, ty, 0);
     }
   }
+
   S.fillQueue.length = 0;
   S.regrowIndex = 0;
   S.windX = 0;
   S.windY = 0;
   S.time = 0;
 }
-
 
 export function sample(wx, wy) {
   const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
@@ -133,8 +130,8 @@ export function clearArea(wx, wy, r, _amt = 64) {
       const idx = iy * S.width + ix;
 
       if (S.density[idx] !== 0) {
-        S.density[idx] = 0;               // clear in-ring
-        clearedTiles.add(tkey(tx, ty));   // remember forever
+        S.density[idx] = 0;              // clear in-ring
+        clearedTiles.add(tkey(tx, ty));  // remember forever
         cleared++;
         budget--;
       }
@@ -146,14 +143,14 @@ export function clearArea(wx, wy, r, _amt = 64) {
 export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, viewW = innerWidth, viewH = innerHeight) {
   S.time += dt;
 
-  // 1) Apply world motion in whole tiles (if your land record moved)
+  // 1) Apply world motion in whole tiles
   if (worldMotion.x || worldMotion.y) {
     const mdx = Math.trunc(worldMotion.x / TILE_SIZE);
     const mdy = Math.trunc(worldMotion.y / TILE_SIZE);
     if (mdx || mdy) scroll(mdx, mdy);
   }
 
-  // 2) Wind advection FIRST: accumulate fractional, scroll whole tiles when exceeded
+  // 2) Wind advection FIRST
   const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
   S.windX += (wv.vxTilesPerSec || 0) * dt;
   S.windY += (wv.vyTilesPerSec || 0) * dt;
@@ -165,7 +162,7 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
   else if (S.windY <= -1) { sy = Math.ceil(S.windY); S.windY -= sy; }
   if (sx || sy) scroll(sx, sy);
 
-  // 3) Margin clamp ONLY (no recentre): top up edges that fall below MARGIN tiles
+  // 3) Margin clamp (top up edges only)
   const VW = Math.ceil(viewW / TILE_SIZE);
   const VH = Math.ceil(viewH / TILE_SIZE);
   const camLeft   = Math.floor((centerWX - viewW / 2) / TILE_SIZE);
@@ -190,7 +187,7 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
     if (need > 0) scroll(0, need);
   }
 
-  // 4) Edge fill (unchanged)
+  // 4) Edge fill
   let edgeBudget = (MC.maxEdgeFillPerTick ?? config.maxEdgeFillPerTick ?? 128);
   while (edgeBudget > 0 && S.fillQueue.length) {
     const { index, tx, ty } = S.fillQueue.shift();
@@ -198,101 +195,75 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
     edgeBudget--;
   }
 
-// 5) Binary regrow (unchanged)
-   let regrowBudget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
-   const total = S.width * S.height;
-   while (regrowBudget > 0 && total > 0) {
-     const idx = S.regrowIndex;
-     const tx = S.ox + (idx % S.width);
-     const ty = S.oy + Math.floor(idx / S.width);
-     const target = miasmaSeed(tx, ty, S.time);
-     if (S.density[idx] !== target) S.density[idx] = target;
-     S.regrowIndex = (S.regrowIndex + 1) % total;
-     regrowBudget--;
-   }
- }
- 
- 
- export function draw(ctx, cam, w, h) {
-   // World-space: share transform with grid/player
-   ctx.save();
-   // include fractional wind remainder to avoid per-tile "jumps"
-   const fracOffX = (S.windX || 0) * TILE_SIZE;
-   const fracOffY = (S.windY || 0) * TILE_SIZE;
-  ctx.translate(
-    Math.round(-cam.x + w / 2 - fracOffX),
-    Math.round(-cam.y + h / 2 - fracOffY)
-  );
- 
-   let budget = (MC.maxDrawTilesPerFrame ?? config.maxDrawTilesPerFrame ?? 4096);
-   if (budget > 0) {
-     const left   = Math.floor((cam.x - w / 2) / TILE_SIZE);
-     const right  = Math.floor((cam.x + w / 2) / TILE_SIZE);
-     const top    = Math.floor((cam.y - h / 2) / TILE_SIZE);
-     const bottom = Math.floor((cam.y + h / 2) / TILE_SIZE);
- 
- 
-        ctx.fillStyle = (MC.color ?? "rgba(128,0,180,0.35)");
- 
-     for (let ty = top; ty <= bottom && budget > 0; ty++) {
-       let runStart = null; // world-tile X where a run of fog==1 begins
- 
-       // walk across this row left..right
-       for (let tx = left; tx <= right; tx++) {
-         if (tx < S.ox || tx >= S.ox + S.width || ty < S.oy || ty >= S.oy + S.height) {
-           // out of ring → flush any open run
-           if (runStart !== null) {
-             const wTiles = tx - runStart;
-            ctx.fillRect(
-              Math.round(runStart * TILE_SIZE),
-              Math.round(ty * TILE_SIZE),
-              Math.round(wTiles * TILE_SIZE),
-              Math.round(TILE_SIZE)
-            );
-             runStart = null;
-             if (--budget <= 0) break;
-           }
-           continue;
-         }
- 
-         const ix = mod(tx - S.ox, S.width);
-         const iy = mod(ty - S.oy, S.height);
-         const filled = (S.density[iy * S.width + ix] === 1);
- 
-         if (filled) {
-           if (runStart === null) runStart = tx; // start new run
-         } else if (runStart !== null) {
-           // end run at tx
-           const wTiles = tx - runStart;
-          ctx.fillRect(
-            Math.round(runStart * TILE_SIZE),
-            Math.round(ty * TILE_SIZE),
-            Math.round(wTiles * TILE_SIZE),
-            Math.round(TILE_SIZE)
-          );
-           runStart = null;
-           if (--budget <= 0) break;
-         }
-       }
- 
-       // flush trailing run at end of row
-       if (budget > 0 && runStart !== null) {
-         const wTiles = (right + 1) - runStart;
-        ctx.fillRect(
-          Math.round(runStart * TILE_SIZE),
-          Math.round(ty * TILE_SIZE),
-          Math.round(wTiles * TILE_SIZE),
-          Math.round(TILE_SIZE)
-        );
-         runStart = null;
-         budget--;
-       }
-     }
- 
-   }
- 
-   ctx.restore();
- }
- 
- export function getTileSize() { return TILE_SIZE; }
- 
+  // 5) Binary regrow
+  let regrowBudget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
+  const total = S.width * S.height;
+  while (regrowBudget > 0 && total > 0) {
+    const idx = S.regrowIndex;
+    const tx = S.ox + (idx % S.width);
+    const ty = S.oy + Math.floor(idx / S.width);
+    const target = miasmaSeed(tx, ty, S.time);
+    if (S.density[idx] !== target) S.density[idx] = target;
+    S.regrowIndex = (S.regrowIndex + 1) % total;
+    regrowBudget--;
+  }
+}
+
+export function draw(ctx, cam, w, h) {
+  ctx.save();
+
+  // include fractional wind remainder (sub-pixel smoothness)
+  const fracOffX = (S.windX || 0) * TILE_SIZE;
+  const fracOffY = (S.windY || 0) * TILE_SIZE;
+  ctx.translate(-cam.x + w / 2 - fracOffX, -cam.y + h / 2 - fracOffY);
+
+  let budget = (MC.maxDrawTilesPerFrame ?? config.maxDrawTilesPerFrame ?? 4096);
+  if (budget > 0) {
+    const left   = Math.floor((cam.x - w / 2) / TILE_SIZE);
+    const right  = Math.floor((cam.x + w / 2) / TILE_SIZE);
+    const top    = Math.floor((cam.y - h / 2) / TILE_SIZE);
+    const bottom = Math.floor((cam.y + h / 2) / TILE_SIZE);
+
+    ctx.fillStyle = (MC.color ?? "rgba(128,0,180,0.35)");
+
+    for (let ty = top; ty <= bottom && budget > 0; ty++) {
+      let runStart = null;
+
+      for (let tx = left; tx <= right; tx++) {
+        if (tx < S.ox || tx >= S.ox + S.width || ty < S.oy || ty >= S.oy + S.height) {
+          if (runStart !== null) {
+            const wTiles = tx - runStart;
+            ctx.fillRect(runStart * TILE_SIZE, ty * TILE_SIZE, wTiles * TILE_SIZE, TILE_SIZE);
+            runStart = null;
+            if (--budget <= 0) break;
+          }
+          continue;
+        }
+
+        const ix = mod(tx - S.ox, S.width);
+        const iy = mod(ty - S.oy, S.height);
+        const filled = (S.density[iy * S.width + ix] === 1);
+
+        if (filled) {
+          if (runStart === null) runStart = tx;
+        } else if (runStart !== null) {
+          const wTiles = tx - runStart;
+          ctx.fillRect(runStart * TILE_SIZE, ty * TILE_SIZE, wTiles * TILE_SIZE, TILE_SIZE);
+          runStart = null;
+          if (--budget <= 0) break;
+        }
+      }
+
+      if (budget > 0 && runStart !== null) {
+        const wTiles = (right + 1) - runStart;
+        ctx.fillRect(runStart * TILE_SIZE, ty * TILE_SIZE, wTiles * TILE_SIZE, TILE_SIZE);
+        runStart = null;
+        budget--;
+      }
+    }
+  }
+
+  ctx.restore();
+}
+
+export function getTileSize() { return TILE_SIZE; }
