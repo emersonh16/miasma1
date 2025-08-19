@@ -1,8 +1,8 @@
 // Minimal world stub to start; chunking scaffolding using shared helpers.
 import { worldToTile, tileToChunk, mod } from "../core/coords.js";
 
-const TILE_SIZE = 64; // world units per tile
-const CHUNK_SIZE = 16; // tiles per chunk
+export const TILE_SIZE = 64; // world units per tile
+export const CHUNK_SIZE = 16; // tiles per chunk
 
 export function getTile(wx, wy) {
   const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
