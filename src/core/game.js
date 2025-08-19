@@ -4,7 +4,8 @@ import { makeCamera, follow } from "./camera.js";
 import * as miasma from "../systems/miasma/index.js";
 import * as beam from "../systems/beam/index.js";
 import { makePlayer, updatePlayer, drawPlayer } from "../entities/player.js";
-import { clear } from "../render/draw.js";
+import { clear, drawGrid } from "../render/draw.js";
+
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("game"));
 const ctx = canvas.getContext("2d");
@@ -71,12 +72,19 @@ function frame(now) {
   // DRAW
   clear(ctx, w, h);
 
+
   // World-space: center the world on screen
   ctx.save();
   ctx.translate(w / 2, h / 2);
+
+  // Grid first, then player/beam
+  drawGrid(ctx, cam, w, h, 64);
   drawPlayer(ctx, cam, player);
   beam.draw(ctx, cam, player);
+
   ctx.restore();
+
+
 
   // Screen-space overlays (stay after restore)
   miasma.draw(ctx, cam, w, h);
@@ -84,11 +92,3 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-
-// Keep number keys working (optional)
-addEventListener("keydown", (e) => {
-  if (e.key === "1") beam.setMode("bubble");
-  if (e.key === "2") beam.setMode("cone");
-  if (e.key === "3") beam.setMode("laser");
-  if (e.key === "0") beam.setMode("off"); // quick kill switch
-});
