@@ -4,6 +4,8 @@
 
 import { worldToTile, mod } from "../../core/coords.js";
 import { config } from "../../core/config.js";
+import * as wind from "../wind/index.js";
+
 
 const MC = (config.miasma ?? {});
 const TILE_SIZE = MC.tileSize ?? 64;
@@ -143,9 +145,10 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }) {
   const dy = desiredOy - S.oy;
   if (dx || dy) scroll(dx, dy);
 
-  // 3) Wind advection (whole-tile)
-  S.windX += S.windVX * dt;
-  S.windY += S.windVY * dt;
+  // 3) Wind advection (tiles/sec from modular wind gears)
+  const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
+  S.windX += (wv.vxTilesPerSec || 0) * dt;
+  S.windY += (wv.vyTilesPerSec || 0) * dt;
 
   let sx = 0;
   if (S.windX >= 1) { sx = Math.floor(S.windX); S.windX -= sx; }
@@ -156,6 +159,7 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }) {
   else if (S.windY <= -1) { sy = Math.ceil(S.windY); S.windY -= sy; }
 
   if (sx || sy) scroll(sx, sy);
+
 
   // 4) Edge fill from queue (deterministic per world tile)
   let edgeBudget = (MC.maxEdgeFillPerTick ?? config.maxEdgeFillPerTick ?? 128);
@@ -201,8 +205,11 @@ let budget = (MC.maxDrawTilesPerFrame ?? config.maxDrawTilesPerFrame ?? 4096);
         ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
         budget--;
       }
-    }
+     }
   }
 
   ctx.restore();
 }
+
+export function getTileSize() { return TILE_SIZE; }
+

@@ -6,6 +6,7 @@ import * as beam from "../systems/beam/index.js";
 import { makePlayer, updatePlayer, drawPlayer } from "../entities/player.js";
 import { clear, drawGrid } from "../render/draw.js";
 import * as chunks from "../world/chunks.js";
+import * as wind from "../systems/wind/index.js";
 
 
 
@@ -23,6 +24,16 @@ resize();
 // --- init ---
 initInput();
 miasma.init();
+// Simple baseline wind gear you can tune:
+wind.clearGears();
+// Example: constant wind to the left at 5 tiles/sec
+wind.addGear({
+  locked: true,
+  dirDeg: 180,           // 180° = left
+  speedTilesPerSec: 5,   // "5 knots"
+  coverage: () => 1,     // affect whole screen for now
+});
+
 const cam = makeCamera();
 const player = makePlayer();
 
