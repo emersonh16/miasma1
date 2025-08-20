@@ -12,14 +12,16 @@ export function updatePlayer(p, dt) {
 }
 
 export function drawPlayer(ctx, cam, p) {
-  ctx.save();
-  ctx.translate(Math.floor(-cam.x + p.x), Math.floor(-cam.y + p.y));
-  ctx.beginPath();
-  ctx.arc(0, 0, p.r, 0, Math.PI * 2);
-ctx.fillStyle = "#a83c0f";   // deep burnt orange / red
+ctx.save();
+// player is always at camera center → this translate resolves to (0,0) with no rounding
+ctx.translate(-cam.x + p.x, -cam.y + p.y);
+ctx.beginPath();
+ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+ctx.fillStyle = "#a83c0f";
 ctx.fill();
 ctx.lineWidth = 2;
-ctx.strokeStyle = "#3b2618"; // dark mossy brown outline
+ctx.strokeStyle = "#3b2618";
 ctx.stroke();
-  ctx.restore();
+ctx.restore();
+
 }

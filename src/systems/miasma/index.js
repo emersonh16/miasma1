@@ -345,60 +345,18 @@ if (sx || sy) scroll(sx, sy);
   }
 }
 
-// Blit a viewport from the ring canvas, wrapping at edges (up to 4 draws)
-function blitWrapped(ctx, src, dst) {
-  const W = S.fogCanvas.width;
-  const H = S.fogCanvas.height;
-
-  // put sx,sy into [0..W), [0..H)
-  const norm = (v, m) => ((v % m) + m) % m;
-
-  let sx = norm(src.x, W);
-  let sy = norm(src.y, H);
-  const sw = src.w;
-  const sh = src.h;
-
-  const dx = dst.x;
-  const dy = dst.y;
-
-  // how much fits before wrapping?
-  const sw1 = Math.min(sw, W - sx);
-  const sh1 = Math.min(sh, H - sy);
-
-  // draw top-left piece
-  ctx.drawImage(S.fogCanvas, sx, sy, sw1, sh1, dx, dy, sw1, sh1);
-
-  // if wraps horizontally
-  if (sw1 < sw) {
-    const sw2 = sw - sw1;
-    ctx.drawImage(S.fogCanvas, 0, sy, sw2, sh1, dx + sw1, dy, sw2, sh1);
-  }
-
-  // if wraps vertically
-  if (sh1 < sh) {
-    const sh2 = sh - sh1;
-    ctx.drawImage(S.fogCanvas, sx, 0, sw1, sh2, dx, dy + sh1, sw1, sh2);
-
-    // if wraps both horizontally and vertically (bottom-right quadrant)
-    if (sw1 < sw) {
-      const sw2 = sw - sw1;
-      ctx.drawImage(S.fogCanvas, 0, 0, sw2, sh2, dx + sw1, dy + sh1, sw2, sh2);
-    }
-  }
-}
 
 export function draw(ctx, cam, w, h) {
   if (!S.fogCanvas) return;
 
   ctx.save();
-  // World-space center
-// include fractional wind remainder for sub-pixel smoothness
-const fracOffX = (S.windX || 0) * TILE_SIZE;
-const fracOffY = (S.windY || 0) * TILE_SIZE;
-ctx.translate(-cam.x + w / 2 - fracOffX, -cam.y + h / 2 - fracOffY);
+  // Align world so the camera sits at the screen center.
+  // Sub-pixel wind remainder keeps continuous drift even before whole-tile scrolls.
+  const fracOffX = (S.windX || 0) * TILE_SIZE;
+  const fracOffY = (S.windY || 0) * TILE_SIZE;
+  ctx.translate(-cam.x + w / 2 - fracOffX, -cam.y + h / 2 - fracOffY);
 
-
-  // Draw the entire ring at its world position; canvas clip crops to view.
+  // Draw the entire ring at its world position; canvas clipping takes care of viewport.
   const px = S.ox * TILE_SIZE;
   const py = S.oy * TILE_SIZE;
   ctx.drawImage(S.fogCanvas, px, py);
