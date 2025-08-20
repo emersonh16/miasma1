@@ -101,8 +101,9 @@ function frame(now) {
     drawGrid(ctx, cam, w, h, 64);
   }
 
-  drawPlayer(ctx, cam, player);
+  // World draw (beam first, player on top)
   beam.draw(ctx, cam, player);
+  drawPlayer(ctx, cam, player);
 
   ctx.restore();
 
