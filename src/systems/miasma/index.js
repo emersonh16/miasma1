@@ -35,9 +35,16 @@ const S = {
 };
 
 
-// Cleared fog tiles (relative to current origin): map from key -> timeCleared
-const clearedMap = new Map();
-const key = (tx, ty) => `${tx},${ty}`;
+// Cleared fog tiles keyed by world tile coords (packed into a bigint)
+const clearedMap = new Map(); // Map<bigint, number>
+const key = (tx, ty) => (BigInt(tx) << 32n) | (BigInt(ty) & 0xffffffffn);
+const unpack = (k) => {
+  let ty = Number(k & 0xffffffffn);
+  if (ty >= 0x80000000) ty -= 0x100000000;
+  let tx = Number(k >> 32n);
+  if (tx >= 0x80000000) tx -= 0x100000000;
+  return [tx, ty];
+};
 
 
 // ---- API ----
@@ -62,8 +69,7 @@ export function getOrigin()   { return { ox: S.ox, oy: S.oy }; }
 
 export function sample(wx, wy) {
   const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
-  // account for fog origin
-  const k = key(tx - S.ox, ty - S.oy);
+  const k = key(tx, ty);
   return clearedMap.has(k) ? 0 : 1;
 }
 
@@ -90,7 +96,7 @@ export function clearArea(wx, wy, r, _amt = 64) {
       const dyw = centerY - wy;
       if ((dxw * dxw + dyw * dyw) > r2) continue;
 
-      const k = key(tx - S.ox, ty - S.oy);
+      const k = key(tx, ty);
       if (!clearedMap.has(k)) {
         clearedMap.set(k, S.time); // record clear time in seconds
         cleared++;
@@ -135,16 +141,6 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
 
       S.ox += shiftX;
       S.oy += shiftY;
-
-      if (clearedMap.size) {
-        const shifted = new Map();
-        for (const [k, v] of clearedMap) {
-          const [lx, ly] = k.split(",").map(Number);
-          shifted.set(key(lx - shiftX, ly - shiftY), v);
-        }
-        clearedMap.clear();
-        for (const [k, v] of shifted) clearedMap.set(k, v);
-      }
     }
   }
 
@@ -163,9 +159,7 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
  let pruneBudget = PRUNE_BUDGET;
   for (const k of clearedMap.keys()) {
     if (pruneBudget <= 0) break;
-    const [lx, ly] = k.split(",").map(Number);
-    const tx = lx + S.ox;
-    const ty = ly + S.oy;
+    const [tx, ty] = unpack(k);
     if (tx < keepLeft || tx >= keepRight || ty < keepTop || ty >= keepBottom) {
       clearedMap.delete(k);
       pruneBudget--;
@@ -186,18 +180,16 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
   for (const [k, tCleared] of clearedMap) {
     if (budget <= 0) break;
 
-    const [lx, ly] = k.split(",").map(Number);
-    const tx = lx + S.ox;
-    const ty = ly + S.oy;
+    const [tx, ty] = unpack(k);
     if (tx < scanLeft || tx >= scanRight || ty < scanTop || ty >= scanBottom) continue;
 
     if ((S.time - tCleared) < delayS) continue;
 
     const nFog =
-      (!clearedMap.has(key(tx - 1 - S.ox, ty - S.oy))) ||
-      (!clearedMap.has(key(tx + 1 - S.ox, ty - S.oy))) ||
-      (!clearedMap.has(key(tx - S.ox, ty - 1 - S.oy))) ||
-      (!clearedMap.has(key(tx - S.ox, ty + 1 - S.oy)));
+      (!clearedMap.has(key(tx - 1, ty))) ||
+      (!clearedMap.has(key(tx + 1, ty))) ||
+      (!clearedMap.has(key(tx, ty - 1))) ||
+      (!clearedMap.has(key(tx, ty + 1)));
 
     if (nFog && Math.random() < chance) {
       toGrow.push(k);
@@ -231,9 +223,7 @@ export function draw(ctx, cam, w, h) {
   let holes = 0;
   ctx.beginPath();
   for (const k of clearedMap.keys()) {
-    const [lx, ly] = k.split(",").map(Number);
-    const tx = lx + S.ox;
-    const ty = ly + S.oy;
+    const [tx, ty] = unpack(k);
     if (tx < left || tx >= right || ty < top || ty >= bottom) continue;
 
     ctx.rect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
