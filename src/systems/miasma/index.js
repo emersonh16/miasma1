@@ -145,8 +145,6 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
     S.ox += shiftX;
     S.oy += shiftY;
 
-    S.ox += shiftX;
-    S.oy += shiftY;
 
     if (clearedMap.size) {
         const shifted = new Map();
@@ -162,19 +160,20 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
 
   // --- Wind‑driven shimmer motion (continuous) ---
   {
-    const vel = wind.getVelocity({
-      centerWX,
-      centerWY,
-      tileSize: TILE_SIZE,
-      time: S.time,
-    });
-    const spd = MC.shimmerSpeed ?? 0;
-    const targetVX = vel.vxTilesPerSec * TILE_SIZE * spd;
-    const targetVY = vel.vyTilesPerSec * TILE_SIZE * spd;
-    S.vxSh = targetVX;
-    S.vySh = targetVY;
-    S.noiseOffX -= S.vxSh * dt;
-    S.noiseOffY -= S.vySh * dt;
+const spd = MC.shimmerSpeed ?? 1;
+const vel = wind.getVelocity({
+  centerWX, centerWY,
+  tileSize: TILE_SIZE,
+  time: S.time,
+});
+
+S.vxSh = vel.vxTilesPerSec * TILE_SIZE * spd;
+S.vySh = vel.vyTilesPerSec * TILE_SIZE * spd;
+
+S.noiseOffX -= S.vxSh * dt;
+S.noiseOffY -= S.vySh * dt;
+
+
 
   }
 
