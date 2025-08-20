@@ -17,7 +17,7 @@ export const config = {
     // draw/tiling
     tileSize: 4,
     marginTiles: 8,
-    color: "rgba(128,0,180,0.35)",
+    color: "rgba(128,0,180,.35)",
 
     // regrow tuning
     regrowChance: 0.2,       // probability a candidate cell regrows this tick

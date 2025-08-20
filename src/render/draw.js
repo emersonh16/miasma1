@@ -1,11 +1,34 @@
 // src/render/draw.js
 
+// Pre-make an earth pattern (once per context)
+let earthPattern = null;
+function ensureEarthPattern(ctx) {
+  if (earthPattern) return earthPattern;
+  const size = 64;
+  const off = document.createElement("canvas");
+  off.width = off.height = size;
+  const octx = off.getContext("2d");
+
+  // Simple dirt texture: two-tone speckle
+  octx.fillStyle = "#5e4a28";
+  octx.fillRect(0, 0, size, size);
+  octx.fillStyle = "#4a3820";
+  for (let i = 0; i < 40; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    octx.fillRect(x, y, 2, 2);
+  }
+  earthPattern = ctx.createPattern(off, "repeat");
+  return earthPattern;
+}
+
 export function clear(ctx, w, h) {
   ctx.clearRect(0, 0, w, h);
-  // Desert ground
-  ctx.fillStyle = "#5e4a28ff";
+  ctx.fillStyle = ensureEarthPattern(ctx);
   ctx.fillRect(0, 0, w, h);
 }
+
+
 
 /**
  * World‑aligned grid that scrolls under the player.
