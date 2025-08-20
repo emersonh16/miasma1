@@ -121,11 +121,9 @@ function frame(now) {
   const h = canvas.height / devicePixelRatio;
 
   // UPDATE — only when not paused/dead
-  let camMotion = { x: 0, y: 0 };
   if (!state.paused && !state.dead) {
     const a = axis();
     const speed = config.player.speed;
-    const prevCamX = cam.x, prevCamY = cam.y;
 
     cam.x += a.x * speed * dt;
     cam.y += a.y * speed * dt;
@@ -136,9 +134,6 @@ function frame(now) {
 
     // Stream chunks around camera center
     chunks.streamAround(cam.x, cam.y);
-
-    // Real world motion under camera (camera delta + wind drift)
-    camMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
 
     const windVel = wind.getVelocity({
       centerWX: cam.x,
@@ -152,12 +147,7 @@ function frame(now) {
       y: windVel.vyTilesPerSec * tileSize * dt
     };
 
-    const worldMotion = {
-      x: camMotion.x + windMotion.x,
-      y: camMotion.y + windMotion.y
-    };
-
-    miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
+    miasma.update(dt, cam.x, cam.y, windMotion, w, h);
 
     // Ensure player health fields (defensive)
     if (player.maxHealth == null) player.maxHealth = 100;
