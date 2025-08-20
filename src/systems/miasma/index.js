@@ -14,6 +14,8 @@ const PAD = MC.regrowPad ?? (MC.marginTiles ?? 6);        // tiles beyond view
 const REGROW_CHANCE = MC.regrowChance ?? 0.6;             // 0..1
 const REGROW_BUDGET = MC.regrowBudget ??
   Math.floor((MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256) / 2);
+const MAX_HOLES_PER_FRAME = MC.maxDrawTilesPerFrame ?? 4000; // tune as needed
+
 
 // ---- State ----
 const S = {
@@ -142,11 +144,10 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
 }
 
 export function draw(ctx, cam, w, h) {
-  // World-space: center the world on screen
   ctx.save();
   ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
 
-  // Determine viewport window (same as update)
+  // Padded viewport in tile coords
   const viewCols = Math.ceil(w / TILE_SIZE);
   const viewRows = Math.ceil(h / TILE_SIZE);
   const left   = Math.floor((cam.x - w / 2) / TILE_SIZE) - PAD;
@@ -154,17 +155,29 @@ export function draw(ctx, cam, w, h) {
   const right  = left + viewCols + PAD * 2;
   const bottom = top  + viewRows + PAD * 2;
 
+  // 1) Paint one big fog rect (fast)
   ctx.fillStyle = FOG_COLOR;
+  ctx.fillRect(left * TILE_SIZE, top * TILE_SIZE,
+               (right - left) * TILE_SIZE, (bottom - top) * TILE_SIZE);
 
-  // Draw fog tiles only (skip cleared)
+  // 2) Punch holes for cleared tiles (only those visible)
+  ctx.globalCompositeOperation = "destination-out";
+
+  let holes = 0;
   for (let ty = top; ty < bottom; ty++) {
     const y = ty * TILE_SIZE;
     for (let tx = left; tx < right; tx++) {
-      if (clearedTiles.has(key(tx, ty))) continue;
+      if (!clearedTiles.has(key(tx, ty))) continue;
       const x = tx * TILE_SIZE;
       ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+      holes++;
+      if (holes >= MAX_HOLES_PER_FRAME) break; // stop once budget hit
     }
+    if (holes >= MAX_HOLES_PER_FRAME) break;
   }
 
+
+  // reset comp op
+  ctx.globalCompositeOperation = "source-over";
   ctx.restore();
 }
