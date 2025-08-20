@@ -9,25 +9,43 @@ import * as chunks from "../world/chunks.js";
 import * as wind from "../systems/wind/index.js";
 import { drawDevHUD } from "../render/devhud.js";
 
-// --- Canvas ---
+// --- Canvases ---
+// Base/world canvas (already in DOM)
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("game"));
 const ctx = canvas.getContext("2d");
+
+// Fog overlay (new, stacked above base)
+const fogCanvas = document.createElement("canvas");
+const fogCtx = fogCanvas.getContext("2d", { alpha: true });
+
+// Stack them
+Object.assign(canvas.style,    { position: "absolute", inset: "0", display: "block" });
+Object.assign(fogCanvas.style,{ position: "absolute", inset: "0", display: "block", pointerEvents: "none" });
+document.body.appendChild(fogCanvas);
+
 
 // --- Input & actors ---
 initInput();
 const cam = makeCamera();
 const player = makePlayer();
 
-// --- Resize/init miasma centered on camera ---
 function resize() {
-  canvas.width = Math.floor(innerWidth * devicePixelRatio);
-  canvas.height = Math.floor(innerHeight * devicePixelRatio);
+  const dw = Math.floor(innerWidth  * devicePixelRatio);
+  const dh = Math.floor(innerHeight * devicePixelRatio);
+
+  // Base canvas
+  canvas.width = dw;  canvas.height = dh;
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
 
-  const viewW = canvas.width / devicePixelRatio;
-  const viewH = canvas.height / devicePixelRatio;
+  // Fog canvas (same size)
+  fogCanvas.width = dw;  fogCanvas.height = dh;
+  fogCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+
+  const viewW = dw / devicePixelRatio;
+  const viewH = dh / devicePixelRatio;
   miasma.init(viewW, viewH, cam.x, cam.y);
 }
+
 addEventListener("resize", resize);
 resize();
 
@@ -91,7 +109,6 @@ function frame(now) {
     tileSize: miasma.getTileSize(),
     time: now / 1000
   });
-  // convert from tiles/sec → world units/sec
   const tileSize = miasma.getTileSize();
   const windMotion = {
     x: windVel.vxTilesPerSec * tileSize * dt,
@@ -111,29 +128,26 @@ function frame(now) {
   beam.setAngle(Math.atan2(aimY, aimX));
   beam.raycast(player, beam.getAngle());
 
-   // DRAW
-  clear(ctx, w, h, cam); // world‑anchored ground under fog
+    // --- DRAW (two-layer pipeline) ---
 
+  // Base/world layer
+  ctx.clearRect(0, 0, w, h);
+  clear(ctx, w, h, cam); // earth texture (world-anchored)
 
-  // World space
   ctx.save();
   ctx.translate(w / 2, h / 2);
-
-  if (config.flags.grid) {
-    drawGrid(ctx, cam, w, h, 64);
-  }
-
-  // World draw (beam first, player on top)
+  if (config.flags.grid) drawGrid(ctx, cam, w, h, 64);
   beam.draw(ctx, cam, player);
   drawPlayer(ctx, cam, player);
-
   ctx.restore();
 
-  // Screen-space overlays
-  miasma.draw(ctx, cam, w, h);
+  // Fog overlay layer
+  fogCtx.clearRect(0, 0, w, h);
+  // miasma.draw does its own cam translation + destination-out hole punching
+  miasma.draw(fogCtx, cam, w, h);            // paints purple fog + holes  
+  drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
 
-  // Developer HUD
-  drawDevHUD(ctx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
+
 
   requestAnimationFrame(frame);
 }
