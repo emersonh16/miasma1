@@ -39,12 +39,14 @@ miasma.init(viewW, viewH, cam.x, cam.y); // center the ring on the spindle
 
 // Wind gear that follows the player's movement
 wind.clearGears();
+// Disable wind for debugging (static fog)
 wind.addGear({
   locked: true,
-  dirDeg: 180,            // blow to the left
-  speedTilesPerSec: 20,   // visible drift
-  coverage: () => 1,      // full-screen coverage for now
+  dirDeg: 0,
+  speedTilesPerSec: 0,
+  coverage: () => 0,
 });
+
 
 
 // Mouse state (screen coords)
@@ -97,9 +99,10 @@ function frame(now) {
   const w = canvas.width / devicePixelRatio;
   const h = canvas.height / devicePixelRatio;
 
-  // Real world motion for miasma conveyor
+  // Real world motion under camera (use camera delta; ring logic enqueues the correct edge)
   const worldMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
   miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
+
 
   // Aim beam at mouse (player is screen center)
 
@@ -129,10 +132,21 @@ function frame(now) {
 
   ctx.restore();
 
-
-  // Screen-space overlays (stay after restore)
   miasma.draw(ctx, cam, w, h);
 
+  // --- DEBUG HUD: cam delta, wind, ring origin ---
+  const wv = wind.getVelocity({ centerWX: cam.x, centerWY: cam.y, time: 0, tileSize: miasma.getTileSize() });
+  const o = miasma.getOrigin();
+  ctx.save();
+  ctx.fillStyle = "#fff";
+  ctx.font = "12px monospace";
+  ctx.fillText(`camΔ: ${worldMotion.x.toFixed(2)}, ${worldMotion.y.toFixed(2)}`, 8, 16);
+  ctx.fillText(`wind: ${wv.vxTilesPerSec.toFixed(2)}, ${wv.vyTilesPerSec.toFixed(2)} tiles/s`, 8, 32);
+  ctx.fillText(`ring: ox=${o.ox}, oy=${o.oy}`, 8, 48);
+  ctx.restore();
+
   requestAnimationFrame(frame);
+
+
 }
 requestAnimationFrame(frame);

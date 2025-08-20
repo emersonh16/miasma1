@@ -348,21 +348,34 @@ if (sx || sy) scroll(sx, sy);
   }
 
 
-  // 5) Gradual regrow (budgeted) → increment density toward 1
-  let regrowBudget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
-  const total = S.width * S.height;
-  const step = MC.regrowStep ?? 0.1;
-  while (regrowBudget > 0 && total > 0) {
-    const idx = S.regrowIndex;
-    if (S.density[idx] < 1) {
-      S.density[idx] = Math.min(1, S.density[idx] + step);
-      const tx = S.ox + (idx % S.width);
-      const ty = S.oy + Math.floor(idx / S.width);
-      paintTileWorld(tx, ty, S.density[idx]);
+  // 5) Adjacency-based regrow with randomness (budgeted)
+  let regrowBudget = Math.floor((MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256) / 2);
+  const w = S.width, h = S.height;
+  const toGrow = [];
+
+  for (let y = 1; y < h - 1 && regrowBudget > 0; y++) {
+    for (let x = 1; x < w - 1 && regrowBudget > 0; x++) {
+      const idx = y * w + x;
+      if (S.density[idx] !== 0) continue; // already fog
+      // Check 4-neighbors
+      if (S.density[idx - 1] === 1 || S.density[idx + 1] === 1 ||
+          S.density[idx - w] === 1 || S.density[idx + w] === 1) {
+        // Random chance to regrow this tick (e.g. 40%)
+        if (Math.random() < 0.4) {
+          toGrow.push(idx);
+          regrowBudget--;
+        }
+      }
     }
-    S.regrowIndex = (S.regrowIndex + 1) % total;
-    regrowBudget--;
   }
+
+  for (const idx of toGrow) {
+    S.density[idx] = 1;
+    const tx = S.ox + (idx % w);
+    const ty = S.oy + Math.floor(idx / w);
+    paintTileWorld(tx, ty, true);
+  }
+
 }
 
 
@@ -391,3 +404,7 @@ export function draw(ctx, cam, w, h) {
 
 
 export function getTileSize() { return TILE_SIZE; }
+
+export function getOrigin() {
+  return { ox: S.ox, oy: S.oy };
+}
