@@ -348,20 +348,31 @@ if (sx || sy) scroll(sx, sy);
   }
 
 
-  // 5) Adjacency-based regrow with randomness (budgeted)
-  let regrowBudget = Math.floor((MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256) / 2);
+   // 5) Adjacency-based regrow with randomness, restricted to viewport+pad
+  const chance = MC.regrowChance ?? 0.4;
+  let regrowBudget = MC.regrowBudget ?? Math.floor((MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256) / 2);
   const w = S.width, h = S.height;
+
+  const viewTilesW = Math.ceil(viewW / TILE_SIZE);
+  const viewTilesH = Math.ceil(viewH / TILE_SIZE);
+  const pad = MC.regrowPad ?? MARGIN;
+
+  const viewLeft   = Math.floor((centerWX - viewW / 2) / TILE_SIZE) - pad;
+  const viewTop    = Math.floor((centerWY - viewH / 2) / TILE_SIZE) - pad;
+  const viewRight  = viewLeft + viewTilesW + pad * 2;
+  const viewBottom = viewTop  + viewTilesH + pad * 2;
+
   const toGrow = [];
 
-  for (let y = 1; y < h - 1 && regrowBudget > 0; y++) {
-    for (let x = 1; x < w - 1 && regrowBudget > 0; x++) {
-      const idx = y * w + x;
-      if (S.density[idx] !== 0) continue; // already fog
-      // Check 4-neighbors
+  for (let ty = viewTop; ty < viewBottom && regrowBudget > 0; ty++) {
+    for (let tx = viewLeft; tx < viewRight && regrowBudget > 0; tx++) {
+      const ix = mod(tx - S.ox, w);
+      const iy = mod(ty - S.oy, h);
+      const idx = iy * w + ix;
+      if (S.density[idx] !== 0) continue;
       if (S.density[idx - 1] === 1 || S.density[idx + 1] === 1 ||
           S.density[idx - w] === 1 || S.density[idx + w] === 1) {
-        // Random chance to regrow this tick (e.g. 40%)
-        if (Math.random() < 0.4) {
+        if (Math.random() < chance) {
           toGrow.push(idx);
           regrowBudget--;
         }
@@ -373,8 +384,9 @@ if (sx || sy) scroll(sx, sy);
     S.density[idx] = 1;
     const tx = S.ox + (idx % w);
     const ty = S.oy + Math.floor(idx / w);
-    paintTileWorld(tx, ty, true);
+    paintTileWorld(tx, ty, 1);
   }
+
 
 }
 

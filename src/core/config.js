@@ -8,15 +8,21 @@ export const config = {
   maxChunkGenPerFrame: 1,
   maxDrawCalls: 2000,
 
-  // Miasma tuning (new)
  miasma: {
-  tileSize: 4,              // << super fine fog cells
-  marginTiles: 4,
-  maxEdgeFillPerTick: 3000, // bump budgets to keep up
-  maxTilesUpdatedPerTick: 12000,
-  maxDrawTilesPerFrame: 20000,
-  color: "rgba(128,0,180,0.35)",
-},
+   tileSize: 4,
+   marginTiles: 4,
+
+   // regrow tuning
+   regrowChance: 0.7,       // ↑ higher = fewer gaps (set lower for more voids)
+   regrowPad: 8,            // tiles outside viewport to scan
+   regrowBudget: 400,       // tiles per frame allowed to regrow
+
+   maxEdgeFillPerTick: 3000,
+   maxTilesUpdatedPerTick: 12000,
+   maxDrawTilesPerFrame: 20000,
+   color: "rgba(128,0,180,0.35)",
+ },
+
 
 
 
