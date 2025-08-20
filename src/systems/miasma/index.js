@@ -145,7 +145,7 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
     S.ox += shiftX;
     S.oy += shiftY;
 
-    // Keep shimmer phase aligned to world when origin shifts whole tiles
+    // Keep shimmer phase aligned to fog when origin shifts whole tiles
     S.noiseOffX += shiftX * TILE_SIZE;
     S.noiseOffY += shiftY * TILE_SIZE;
 
@@ -159,6 +159,24 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
         for (const [k, v] of shifted) clearedMap.set(k, v);
       }
     }
+  }
+
+  // --- Wind‑driven shimmer motion (continuous) ---
+  {
+    const vel = wind.getVelocity({
+      centerWX,
+      centerWY,
+      tileSize: TILE_SIZE,
+      time: S.time,
+    });
+    const spd = MC.shimmerSpeed ?? 0;
+    const targetVX = vel.vxTilesPerSec * TILE_SIZE * spd;
+    const targetVY = vel.vyTilesPerSec * TILE_SIZE * spd;
+    const SMOOTH = 4; // heavier values = more smoothing
+    S.vxSh += (targetVX - S.vxSh) * Math.min(1, SMOOTH * dt);
+    S.vySh += (targetVY - S.vySh) * Math.min(1, SMOOTH * dt);
+    S.noiseOffX += S.vxSh * dt;
+    S.noiseOffY += S.vySh * dt;
   }
 
 
