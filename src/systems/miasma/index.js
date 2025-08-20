@@ -89,6 +89,32 @@ function shiftFogPixels(dxTiles, dyTiles) {
   // Swap back
   S.fogCtx.clearRect(0, 0, W, H);
   S.fogCtx.drawImage(S.tmpCanvas, 0, 0);
+
+  
+  // Clear newly exposed edges (no wrapping bleed)
+  if (dxTiles > 0) {
+    const cw = dxTiles * TILE_SIZE;
+    S.fogCtx.clearRect(W - cw, 0, cw, H);
+    // Seed fill to avoid visual gaps
+    S.fogCtx.fillStyle = FOG_COLOR;
+    S.fogCtx.fillRect(W - cw, 0, cw, H);
+  } else if (dxTiles < 0) {
+    const cw = -dxTiles * TILE_SIZE;
+    S.fogCtx.clearRect(0, 0, cw, H);
+    S.fogCtx.fillStyle = FOG_COLOR;
+    S.fogCtx.fillRect(0, 0, cw, H);
+  }
+  if (dyTiles > 0) {
+    const ch = dyTiles * TILE_SIZE;
+    S.fogCtx.clearRect(0, H - ch, W, ch);
+    S.fogCtx.fillStyle = FOG_COLOR;
+    S.fogCtx.fillRect(0, H - ch, W, ch);
+  } else if (dyTiles < 0) {
+    const ch = -dyTiles * TILE_SIZE;
+    S.fogCtx.clearRect(0, 0, W, ch);
+    S.fogCtx.fillStyle = FOG_COLOR;
+    S.fogCtx.fillRect(0, 0, W, ch);
+  }
 }
 
 
@@ -348,7 +374,6 @@ export function draw(ctx, cam, w, h) {
   const windOffX = (S.windX || 0) * TILE_SIZE;
   const windOffY = (S.windY || 0) * TILE_SIZE;
 
-
   ctx.translate(
     -cam.x + w / 2 - windOffX,
     -cam.y + h / 2 - windOffY
@@ -361,6 +386,7 @@ export function draw(ctx, cam, w, h) {
 
   ctx.restore();
 }
+
 
 
 
