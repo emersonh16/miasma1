@@ -111,7 +111,7 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
     S.oy = cy - Math.floor(S.rows / 2);
   }
 
-    // Apply world motion (camera delta + wind drift) to fog origin
+  // Apply world motion (camera delta + wind drift) to fog origin
   if (_worldMotion) {
     const shiftX = Math.round(_worldMotion.x / TILE_SIZE);
     const shiftY = Math.round(_worldMotion.y / TILE_SIZE);
@@ -131,26 +131,39 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
     }
   }
 
-
-  // Adjacency-based regrow over a WIDER OFFSCREEN area (budgeted + delayed)
-  let budget = REGROW_BUDGET;
-
-  // Large scan window in world-tiles (viewport + regrowScanPad)
+  // ---- Opportunistic prune so the map doesn't balloon as you travel ----
+  // Keep only a wide window around the camera (viewport + regrowScanPad)
   const scanPad   = (MC.regrowScanPad ?? (PAD * 4));
   const viewCols  = Math.ceil(viewW / TILE_SIZE);
   const viewRows  = Math.ceil(viewH / TILE_SIZE);
 
-  const scanLeft   = Math.floor((centerWX - viewW / 2) / TILE_SIZE) - scanPad;
-  const scanTop    = Math.floor((centerWY - viewH / 2) / TILE_SIZE) - scanPad;
-  const scanRight  = scanLeft + viewCols + scanPad * 2;
-  const scanBottom = scanTop  + viewRows + scanPad * 2;
+  const keepLeft   = Math.floor((centerWX - viewW / 2) / TILE_SIZE) - scanPad;
+  const keepTop    = Math.floor((centerWY - viewH / 2) / TILE_SIZE) - scanPad;
+  const keepRight  = keepLeft + viewCols + scanPad * 2;
+  const keepBottom = keepTop  + viewRows + scanPad * 2;
+
+  if (clearedMap.size > S.cols * S.rows * 4) {
+    for (const k of clearedMap.keys()) {
+      const [lx, ly] = k.split(",").map(Number);
+      const tx = lx + S.ox;
+      const ty = ly + S.oy;
+      if (tx < keepLeft || tx >= keepRight || ty < keepTop || ty >= keepBottom) {
+        clearedMap.delete(k);
+      }
+    }
+  }
+
+  // ---- Adjacency-based regrow (budgeted + delayed) ----
+  let budget = REGROW_BUDGET;
+  const scanLeft   = keepLeft;
+  const scanTop    = keepTop;
+  const scanRight  = keepRight;
+  const scanBottom = keepBottom;
 
   const chance = (MC.regrowChance ?? 0.6) * (MC.regrowSpeedFactor ?? 1);
   const delayS = (MC.regrowDelay ?? 1.0);
 
   const toGrow = [];
-
-  // Iterate only cleared tiles (much cheaper) and check if they lie inside the scan window
   for (const [k, tCleared] of clearedMap) {
     if (budget <= 0) break;
 
@@ -161,7 +174,6 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
 
     if ((S.time - tCleared) < delayS) continue;
 
-    // 4-neighbor fog presence in WORLD tile space
     const nFog =
       (!clearedMap.has(key(tx - 1 - S.ox, ty - S.oy))) ||
       (!clearedMap.has(key(tx + 1 - S.ox, ty - S.oy))) ||
@@ -173,11 +185,9 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
       budget--;
     }
   }
-
-  // Apply regrow
   for (const k of toGrow) clearedMap.delete(k);
-
 }
+
 
 export function draw(ctx, cam, w, h) {
   ctx.save();
@@ -196,24 +206,22 @@ export function draw(ctx, cam, w, h) {
   ctx.fillRect(left * TILE_SIZE, top * TILE_SIZE,
                (right - left) * TILE_SIZE, (bottom - top) * TILE_SIZE);
 
-  // 2) Punch holes for cleared tiles (only those visible)
+  // 2) Punch visible holes only, in one path
   ctx.globalCompositeOperation = "destination-out";
 
   let holes = 0;
-  for (let ty = top; ty < bottom; ty++) {
-    const y = ty * TILE_SIZE;
-    for (let tx = left; tx < right; tx++) {
-      const k = key(tx - S.ox, ty - S.oy);
-      if (!clearedMap.has(k)) continue; // <-- use clearedMap
-      const x = tx * TILE_SIZE;
-      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-      holes++;
-      if (holes >= MAX_HOLES_PER_FRAME) break; // stop once budget hit
-    }
+  ctx.beginPath();
+  for (const k of clearedMap.keys()) {
+    const [lx, ly] = k.split(",").map(Number);
+    const tx = lx + S.ox;
+    const ty = ly + S.oy;
+    if (tx < left || tx >= right || ty < top || ty >= bottom) continue;
+
+    ctx.rect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    holes++;
     if (holes >= MAX_HOLES_PER_FRAME) break;
   }
-
-
+  if (holes > 0) ctx.fill();
 
   // reset comp op
   ctx.globalCompositeOperation = "source-over";
