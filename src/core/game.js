@@ -27,18 +27,36 @@ addEventListener("resize", resize);
 resize();
 initInput();
 
-// Simple baseline wind gear you can tune:
-wind.clearGears();
-// Example: constant wind to the left at 5 tiles/sec
-wind.addGear({
-  locked: true,
-  dirDeg: 180,           // 180° = left
-  speedTilesPerSec: 40,   // "5 knots"
-  coverage: () => 1,     // affect whole screen for now
-});
-
+// Player motion vector for wind/coverage
+let lastMotion = { x: 0, y: 0 };
+const TILE_SIZE = config.miasma?.tileSize ?? 1;
 const cam = makeCamera();
 const player = makePlayer();
+
+// Wind gear that follows the player's movement
+wind.clearGears();
+wind.addGear({
+  locked: true,
+  dirDeg: 0,
+  speedTilesPerSec: 0,
+  coverage(wx, wy) {
+    const mag = Math.hypot(lastMotion.x, lastMotion.y);
+    if (mag < 0.001) return 0;
+
+    const dx = wx - player.x;
+    const dy = wy - player.y;
+    const dmag = Math.hypot(dx, dy);
+    if (dmag === 0) return 1;
+
+    const vx = lastMotion.x / mag;
+    const vy = lastMotion.y / mag;
+    const ux = dx / dmag;
+    const uy = dy / dmag;
+    const dot = vx * ux + vy * uy; // forward = +1, behind = -1
+    return Math.max(0, Math.min(1, (1 - dot) * 0.5));
+  },
+});
+
 
 // Mouse state (screen coords)
 let mouseX = 0, mouseY = 0;
