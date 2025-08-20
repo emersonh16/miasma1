@@ -37,24 +37,9 @@ const player = makePlayer();
 wind.clearGears();
 wind.addGear({
   locked: true,
-  dirDeg: 0,
-  speedTilesPerSec: 0,
-  coverage(wx, wy) {
-    const mag = Math.hypot(lastMotion.x, lastMotion.y);
-    if (mag < 0.001) return 0;
-
-    const dx = wx - player.x;
-    const dy = wy - player.y;
-    const dmag = Math.hypot(dx, dy);
-    if (dmag === 0) return 1;
-
-    const vx = lastMotion.x / mag;
-    const vy = lastMotion.y / mag;
-    const ux = dx / dmag;
-    const uy = dy / dmag;
-    const dot = vx * ux + vy * uy; // forward = +1, behind = -1
-    return Math.max(0, Math.min(1, (1 - dot) * 0.5));
-  },
+  dirDeg: 180,            // blow to the left
+  speedTilesPerSec: 20,   // visible drift
+  coverage: () => 1,      // full-screen coverage for now
 });
 
 

@@ -251,8 +251,8 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
 
   // 1) Smooth camera motion via fractional accumulators (scroll on whole tiles)
   if (worldMotion.x || worldMotion.y) {
-    S.camShiftX += (worldMotion.x || 0) / TILE_SIZE;
-    S.camShiftY += (worldMotion.y || 0) / TILE_SIZE;
+S.camShiftX -= (worldMotion.x || 0) / TILE_SIZE; // cam right -> ring left
+S.camShiftY -= (worldMotion.y || 0) / TILE_SIZE; // cam down  -> ring up
 
     let cmx = 0, cmy = 0;
     if (S.camShiftX >= 1) { cmx = Math.floor(S.camShiftX); S.camShiftX -= cmx; }
@@ -264,8 +264,10 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
 
 // 2) Wind advection — smooth fractional with whole-tile scrolls
 const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
-S.windX += (wv.vxTilesPerSec || 0) * dt;  // tiles
-S.windY += (wv.vyTilesPerSec || 0) * dt;  // tiles
+// wind pushes fog in world space (opposite screen coords)
+S.windX -= (wv.vxTilesPerSec || 0) * dt;
+S.windY -= (wv.vyTilesPerSec || 0) * dt;
+
 
 let sx = 0, sy = 0;
 if (S.windX >= 1)      { sx = Math.floor(S.windX);  S.windX -= sx; }
@@ -338,27 +340,23 @@ export function draw(ctx, cam, w, h) {
 
   ctx.save();
 
-  // Align record spindle → camera center.
-  // Use fractional remainders to keep smooth drift.
+  // Align to spindle (camera center) with BOTH fractional remainders
   const windOffX = (S.windX || 0) * TILE_SIZE;
   const windOffY = (S.windY || 0) * TILE_SIZE;
   const camOffX  = (S.camShiftX || 0) * TILE_SIZE;
   const camOffY  = (S.camShiftY || 0) * TILE_SIZE;
 
-ctx.translate(
-  -cam.x + w / 2 - windOffX - camOffX,
-  -cam.y + h / 2 - windOffY - camOffY
-);
+  ctx.translate(
+    -cam.x + w / 2 - windOffX - camOffX,
+    -cam.y + h / 2 - windOffY - camOffY
+  );
 
-// Draw at the ring origin in world space
-const px = S.ox * TILE_SIZE;
-const py = S.oy * TILE_SIZE;
-ctx.drawImage(S.fogCanvas, px, py);
-
+  // The offscreen ring has already been shifted in scroll().
+  // Draw it at its own origin; no extra S.ox/S.oy here.
+  ctx.drawImage(S.fogCanvas, 0, 0);
 
   ctx.restore();
 }
-
 
 
 
