@@ -111,8 +111,9 @@ function frame(now) {
   beam.setAngle(Math.atan2(aimY, aimX));
   beam.raycast(player, beam.getAngle());
 
-  // DRAW
-  clear(ctx, w, h);
+   // DRAW
+  clear(ctx, w, h, cam); // world‑anchored ground under fog
+
 
   // World space
   ctx.save();
