@@ -168,6 +168,12 @@ function paintTileAtIxIy(ix, iy, filled) {
   }
 }
 
+function paintTileWorld(tx, ty, filled) {
+  const [ix, iy] = ringIxIy(tx, ty);
+  paintTileAtIxIy(ix, iy, filled);
+}
+
+
 export function init(viewW, viewH) {
   const VW = Math.ceil(viewW / TILE_SIZE);
   const VH = Math.ceil(viewH / TILE_SIZE);
