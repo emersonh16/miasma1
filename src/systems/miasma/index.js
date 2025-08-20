@@ -24,11 +24,15 @@ const S = {
   // top-left world tile of the simulated window
   ox: 0,
   oy: 0,
+  // carry fractional motion between frames (in tiles)
+  accTilesX: 0,
+  accTilesY: 0,
   // last view dims (in px) so we can adapt on resize
   viewW: 0,
   viewH: 0,
   time: 0,
 };
+
 
 // Cleared fog tiles (relative to current origin): map from key -> timeCleared
 const clearedMap = new Map();
@@ -112,10 +116,22 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
   }
 
   // Apply world motion (camera delta + wind drift) to fog origin
+  // Accumulate sub-tile motion so direction is truly 360° and speed isn't quantized per-frame.
   if (_worldMotion) {
-    const shiftX = Math.round(_worldMotion.x / TILE_SIZE);
-    const shiftY = Math.round(_worldMotion.y / TILE_SIZE);
+    // accumulate in TILE units
+    S.accTilesX += _worldMotion.x / TILE_SIZE;
+    S.accTilesY += _worldMotion.y / TILE_SIZE;
+
+    // take whole-tile steps (handle negatives correctly)
+    const takeInt = (v) => (v >= 0 ? Math.floor(v) : Math.ceil(v));
+    const shiftX = takeInt(S.accTilesX);
+    const shiftY = takeInt(S.accTilesY);
+
     if (shiftX || shiftY) {
+      // keep the fractional remainder
+      S.accTilesX -= shiftX;
+      S.accTilesY -= shiftY;
+
       S.ox += shiftX;
       S.oy += shiftY;
 
@@ -130,6 +146,7 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
       }
     }
   }
+
 
   // ---- Opportunistic prune so the map doesn't balloon as you travel ----
   // Keep only a wide window around the camera (viewport + regrowScanPad)
