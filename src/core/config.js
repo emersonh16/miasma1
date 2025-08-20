@@ -8,20 +8,25 @@ export const config = {
   maxChunkGenPerFrame: 1,
   maxDrawCalls: 2000,
 
- miasma: {
-   tileSize: 4,
-   marginTiles: 4,
+  miasma: {
+    // draw/tiling
+    tileSize: 4,
+    marginTiles: 8,
+    color: "rgba(128,0,180,0.35)",
 
-   // regrow tuning
-   regrowChance: 0.7,       // ↑ higher = fewer gaps (set lower for more voids)
-   regrowPad: 8,            // tiles outside viewport to scan
-   regrowBudget: 400,       // tiles per frame allowed to regrow
+    // regrow tuning
+    regrowChance: 0.2,       // probability a candidate cell regrows this tick
+    regrowPad: 6,            // tiles beyond viewport to consider for regrow
+    regrowBudget: 800,       // max cells that can regrow per frame
+    regrowDelay: 1.0,        // seconds after clear before regrow eligible
+    regrowSpeedFactor: 0.3,  // <1 slows overall spread rate
 
-   maxEdgeFillPerTick: 3000,
-   maxTilesUpdatedPerTick: 12000,
-   maxDrawTilesPerFrame: 20000,
-   color: "rgba(128,0,180,0.35)",
- },
+    // legacy/budget caps used by our simple path as fallbacks
+    maxEdgeFillPerTick: 3000,
+    maxTilesUpdatedPerTick: 12000,
+    maxDrawTilesPerFrame: 20000
+  },
+
 
 
 

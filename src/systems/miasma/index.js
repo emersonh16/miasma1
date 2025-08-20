@@ -30,9 +30,10 @@ const S = {
   time: 0,
 };
 
-// Persistently cleared world tiles (by world tile coords)
-const clearedTiles = new Set();
+// Cleared world tiles: map from key -> timeCleared
+const clearedMap = new Map();
 const key = (tx, ty) => `${tx},${ty}`;
+
 
 // ---- API ----
 export function init(viewW, viewH, centerWX = 0, centerWY = 0) {
@@ -56,9 +57,9 @@ export function getOrigin()   { return { ox: S.ox, oy: S.oy }; }
 
 export function sample(wx, wy) {
   const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
-  // fog unless persistently cleared
-  return clearedTiles.has(key(tx, ty)) ? 0 : 1;
+  return clearedMap.has(key(tx, ty)) ? 0 : 1;
 }
+
 
 // Circle clear using world distance to tile centers → accurate hitbox alignment
 export function clearArea(wx, wy, r, _amt = 64) {
@@ -83,11 +84,12 @@ export function clearArea(wx, wy, r, _amt = 64) {
       if ((dxw * dxw + dyw * dyw) > r2) continue;
 
       const k = key(tx, ty);
-      if (!clearedTiles.has(k)) {
-        clearedTiles.add(k);
-        cleared++;
-        budget--;
-      }
+  if (!clearedMap.has(k)) {
+  clearedMap.set(k, S.time); // record clear time in seconds
+  cleared++;
+  budget--;
+}
+
     }
   }
   return cleared;
@@ -122,25 +124,30 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
   for (let ty = top; ty < bottom && budget > 0; ty++) {
     for (let tx = left; tx < right && budget > 0; tx++) {
       const k = key(tx, ty);
-      // only consider cleared tiles (0) for regrow
-      if (!clearedTiles.has(k)) continue;
+   // only consider cleared tiles
+if (!clearedMap.has(k)) continue;
 
-      // 4-neighbor check in *world tile* space
-      const nFog =
-        (!clearedTiles.has(key(tx - 1, ty))) ||
-        (!clearedTiles.has(key(tx + 1, ty))) ||
-        (!clearedTiles.has(key(tx, ty - 1))) ||
-        (!clearedTiles.has(key(tx, ty + 1)));
+// check delay
+const timeCleared = clearedMap.get(k);
+if ((S.time - timeCleared) < (MC.regrowDelay ?? 1.0)) continue;
 
-      if (nFog && Math.random() < REGROW_CHANCE) {
-        toGrow.push(k);
-        budget--;
-      }
+// 4-neighbor check
+const nFog =
+  (!clearedMap.has(key(tx - 1, ty))) ||
+  (!clearedMap.has(key(tx + 1, ty))) ||
+  (!clearedMap.has(key(tx, ty - 1))) ||
+  (!clearedMap.has(key(tx, ty + 1)));
+
+if (nFog && Math.random() < (MC.regrowChance ?? 0.6) * (MC.regrowSpeedFactor ?? 1)) {
+  toGrow.push(k);
+  budget--;
+}
+
     }
   }
 
   // apply regrow
-  for (const k of toGrow) clearedTiles.delete(k);
+for (const k of toGrow) clearedMap.delete(k);
 }
 
 export function draw(ctx, cam, w, h) {
@@ -167,7 +174,7 @@ export function draw(ctx, cam, w, h) {
   for (let ty = top; ty < bottom; ty++) {
     const y = ty * TILE_SIZE;
     for (let tx = left; tx < right; tx++) {
-      if (!clearedTiles.has(key(tx, ty))) continue;
+      if (!clearedMap.has(key(tx, ty))) continue; // <-- use clearedMap
       const x = tx * TILE_SIZE;
       ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
       holes++;
@@ -175,6 +182,7 @@ export function draw(ctx, cam, w, h) {
     }
     if (holes >= MAX_HOLES_PER_FRAME) break;
   }
+
 
 
   // reset comp op
