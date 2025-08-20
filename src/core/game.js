@@ -4,7 +4,8 @@ import { makeCamera /*, follow */ } from "./camera.js";
 import * as miasma from "../systems/miasma/index.js";
 import * as beam from "../systems/beam/index.js";
 import { makePlayer, drawPlayer } from "../entities/player.js";
-import { clear, drawGrid } from "../render/draw.js";
+import { clear, drawGrid, drawRocks } from "../render/draw.js";
+import { getTile } from "../world/store.js";
 import * as chunks from "../world/chunks.js";
 import * as wind from "../systems/wind/index.js";
 import { drawDevHUD } from "../render/devhud.js";
@@ -128,11 +129,34 @@ function frame(now) {
     const speed = config.player.speed;
   
 
-    cam.x += a.x * speed * dt;
-    cam.y += a.y * speed * dt;
+    const dx = a.x * speed * dt;
+    const dy = a.y * speed * dt;
+    const R  = player.r ?? 16;  // collision radius
 
+    // Helper to test if player center (px,py) would be inside a solid tile
+    const blockedAt = (px, py) => {
+      // Sample four points around the circle (cheap and solid)
+      const pad = Math.max(1, Math.floor(R * 0.85));
+      return (
+        getTile(px - pad, py)?.solid ||
+        getTile(px + pad, py)?.solid ||
+        getTile(px, py - pad)?.solid ||
+        getTile(px, py + pad)?.solid
+      );
+    };
+
+    // Resolve X
+    let nextX = cam.x + dx;
+    if (!blockedAt(nextX, cam.y)) cam.x = nextX;
+
+    // Resolve Y
+    let nextY = cam.y + dy;
+    if (!blockedAt(cam.x, nextY)) cam.y = nextY;
+
+    // Player stays at camera center
     player.x = cam.x;
     player.y = cam.y;
+
 
 
     // Stream chunks around camera center
@@ -181,13 +205,17 @@ function frame(now) {
 
   // Base/world layer
   ctx.clearRect(0, 0, w, h);
-  clear(ctx, w, h, cam); // earth texture (world-anchored):contentReference[oaicite:3]{index=3}
+  clear(ctx, w, h, cam); // earth texture
+  // Draw rocks BEFORE grid so grid lines show over them (nice debug look)
+  drawRocks(ctx, cam, w, h);
+
   ctx.save();
   ctx.translate(w / 2, h / 2);
   if (config.flags.grid) drawGrid(ctx, cam, w, h, 64);
   beam.draw(ctx, cam, player);
   drawPlayer(ctx, cam, player);
   ctx.restore();
+
 
   // Fog overlay (top-most: fog, dev HUD, player HUD, overlays)
   fogCtx.clearRect(0, 0, w, h);
