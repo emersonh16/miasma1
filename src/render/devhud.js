@@ -103,19 +103,23 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
     centerWX: cam.x, centerWY: cam.y,
     tileSize: miasma.getTileSize(), time: now / 1000
   });
+
   const rawSpeed = Math.hypot(wv.vxTilesPerSec, wv.vyTilesPerSec);
-  const rawDeg = norm360((Math.atan2(wv.vyTilesPerSec, wv.vxTilesPerSec) * 180) / Math.PI);
+  const rawDegUpwind = norm360((Math.atan2(wv.vyTilesPerSec, wv.vxTilesPerSec) * 180) / Math.PI);
+  const targetDegDownwind = norm360(rawDegUpwind + 180); // flip to downwind
 
   // Initialize smoothing targets on first frame
   if (!uiInited) {
     dispSpeed = rawSpeed;
-    dispDeg = rawDeg;
+    dispDeg = targetDegDownwind;
     uiInited = true;
   } else {
     // Smooth both speed and direction (wrap-safe for 360°)
     dispSpeed += (rawSpeed - dispSpeed) * SMOOTH;
-    dispDeg = shortestArcLerpDeg(dispDeg, rawDeg, SMOOTH);
+    dispDeg = shortestArcLerpDeg(dispDeg, targetDegDownwind, SMOOTH);
   }
+
+
 
   ctx.save();
   ctx.font = "12px monospace"; ctx.textBaseline = "top";
@@ -129,7 +133,7 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
   // Header
   ctx.fillStyle = "#fff";
   ctx.fillText(`FPS: ${fps}`, geom.panel.x + 8, geom.panel.y + 6);
-  ctx.fillText(`Wind: ${dispSpeed.toFixed(1)} t/s @ ${Math.round(dispDeg)}°`, geom.panel.x + 8, geom.panel.y + 22);
+  ctx.fillText(`Wind: ${dispSpeed.toFixed(1)} t/s @ ${Math.round(dispDeg)}° (downwind)`, geom.panel.x + 8, geom.panel.y + 22);
 
   // Compass
   ctx.save();
