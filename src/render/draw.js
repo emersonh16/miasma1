@@ -1,5 +1,6 @@
 // src/render/draw.js
 import { config } from "../core/config.js";
+import { getTile, TILE_SIZE } from "../world/store.js";
 
 // --- tiny utils ---
 function mod(n, m) { return ((n % m) + m) % m; }
@@ -102,6 +103,41 @@ export function drawGrid(ctx, cam, w, h, cell = 64) {
     ctx.moveTo(-halfW, y);
     ctx.lineTo(halfW, y);
     ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Draw solid rock tiles (id === 1) in the visible world area.
+ * ctx is assumed to be in screen space; we translate to world space.
+ */
+export function drawRocks(ctx, cam, w, h) {
+  const halfW = w / 2;
+  const halfH = h / 2;
+
+  // Determine tile bounds of the visible area
+  const left   = Math.floor((cam.x - halfW) / TILE_SIZE);
+  const top    = Math.floor((cam.y - halfH) / TILE_SIZE);
+  const right  = Math.floor((cam.x + halfW) / TILE_SIZE);
+  const bottom = Math.floor((cam.y + halfH) / TILE_SIZE);
+
+  ctx.save();
+  ctx.translate(-cam.x + halfW, -cam.y + halfH);
+  ctx.fillStyle = "#4a4a4a";
+
+  let draws = 0;
+  const max = config.maxDrawCalls ?? 2000;
+
+  for (let ty = top; ty <= bottom && draws < max; ty++) {
+    for (let tx = left; tx <= right && draws < max; tx++) {
+      const wx = tx * TILE_SIZE;
+      const wy = ty * TILE_SIZE;
+      if (getTile(wx, wy)?.id === 1) {
+        ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
+        draws++;
+      }
+    }
   }
 
   ctx.restore();
