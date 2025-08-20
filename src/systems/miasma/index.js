@@ -14,6 +14,7 @@ const PAD = MC.regrowPad ?? (MC.marginTiles ?? 6);        // tiles beyond view
 const REGROW_CHANCE = MC.regrowChance ?? 0.6;             // 0..1
 const REGROW_BUDGET = MC.regrowBudget ??
   Math.floor((MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256) / 2);
+const PRUNE_BUDGET = MC.pruneBudget ?? 128;               // tiles pruned per frame
 const MAX_HOLES_PER_FRAME = MC.maxDrawTilesPerFrame ?? 4000; // tune as needed
 
 
@@ -159,14 +160,15 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
   const keepRight  = keepLeft + viewCols + scanPad * 2;
   const keepBottom = keepTop  + viewRows + scanPad * 2;
 
-  if (clearedMap.size > S.cols * S.rows * 4) {
-    for (const k of clearedMap.keys()) {
-      const [lx, ly] = k.split(",").map(Number);
-      const tx = lx + S.ox;
-      const ty = ly + S.oy;
-      if (tx < keepLeft || tx >= keepRight || ty < keepTop || ty >= keepBottom) {
-        clearedMap.delete(k);
-      }
+ let pruneBudget = PRUNE_BUDGET;
+  for (const k of clearedMap.keys()) {
+    if (pruneBudget <= 0) break;
+    const [lx, ly] = k.split(",").map(Number);
+    const tx = lx + S.ox;
+    const ty = ly + S.oy;
+    if (tx < keepLeft || tx >= keepRight || ty < keepTop || ty >= keepBottom) {
+      clearedMap.delete(k);
+      pruneBudget--;
     }
   }
 
