@@ -28,6 +28,8 @@ const S = {
   // carry fractional motion between frames (in tiles)
   accTilesX: 0,
   accTilesY: 0,
+  camFracX: 0,
+  camFracY: 0,
   // last view dims (in px) so we can adapt on resize
   viewW: 0,
   viewH: 0,
@@ -114,34 +116,40 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
   // Recompute window dims if view changed
   if (viewW !== S.viewW || viewH !== S.viewH) {
     init(viewW, viewH, centerWX, centerWY);
-  } else {
-    // Recenter simulated window on camera
-    const cx = Math.floor(centerWX / TILE_SIZE);
-    const cy = Math.floor(centerWY / TILE_SIZE);
-    S.ox = cx - Math.floor(S.cols / 2);
-    S.oy = cy - Math.floor(S.rows / 2);
   }
 
-  // Apply world motion (camera delta + wind drift) to fog origin
-  // Accumulate sub-tile motion so direction is truly 360° and speed isn't quantized per-frame.
+  // Derive origin directly from camera center (tile space)
+  const cx = Math.floor(centerWX / TILE_SIZE);
+  const cy = Math.floor(centerWY / TILE_SIZE);
+  S.ox = cx - Math.floor(S.cols / 2);
+  S.oy = cy - Math.floor(S.rows / 2);
+
+  // Replace previous frame's camera fraction with current
+  S.accTilesX -= S.camFracX;
+  S.accTilesY -= S.camFracY;
+  S.camFracX = centerWX / TILE_SIZE - cx;
+  S.camFracY = centerWY / TILE_SIZE - cy;
+  S.accTilesX += S.camFracX;
+  S.accTilesY += S.camFracY;
+
+  // Apply external world motion (wind) in tile units
   if (_worldMotion) {
-    // accumulate in TILE units
     S.accTilesX += _worldMotion.x / TILE_SIZE;
     S.accTilesY += _worldMotion.y / TILE_SIZE;
+  }
 
-    // take whole-tile steps (handle negatives correctly)
-    const takeInt = (v) => (v >= 0 ? Math.floor(v) : Math.ceil(v));
-    const shiftX = takeInt(S.accTilesX);
-    const shiftY = takeInt(S.accTilesY);
+  // take whole-tile steps (handle negatives correctly)
+  const takeInt = (v) => (v >= 0 ? Math.floor(v) : Math.ceil(v));
+  const shiftX = takeInt(S.accTilesX);
+  const shiftY = takeInt(S.accTilesY);
 
-    if (shiftX || shiftY) {
-      // keep the fractional remainder
-      S.accTilesX -= shiftX;
-      S.accTilesY -= shiftY;
+  if (shiftX || shiftY) {
+    // keep the fractional remainder
+    S.accTilesX -= shiftX;
+    S.accTilesY -= shiftY;
 
-      S.ox += shiftX;
-      S.oy += shiftY;
-    }
+    S.ox += shiftX;
+    S.oy += shiftY;
   }
 
 
@@ -204,18 +212,17 @@ export function draw(ctx, cam, w, h) {
   ctx.save();
   ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
 
-  // Padded viewport in tile coords
-  const viewCols = Math.ceil(w / TILE_SIZE);
-  const viewRows = Math.ceil(h / TILE_SIZE);
-  const left   = Math.floor((cam.x - w / 2) / TILE_SIZE) - PAD;
-  const top    = Math.floor((cam.y - h / 2) / TILE_SIZE) - PAD;
-  const right  = left + viewCols + PAD * 2;
-  const bottom = top  + viewRows + PAD * 2;
+  // Window bounds in tile coords
+  const left   = S.ox;
+  const top    = S.oy;
+  const right  = S.ox + S.cols;
+  const bottom = S.oy + S.rows;
 
   // 1) Paint one big fog rect (fast)
+  const originX = (S.ox + S.accTilesX) * TILE_SIZE;
+  const originY = (S.oy + S.accTilesY) * TILE_SIZE;
   ctx.fillStyle = FOG_COLOR;
-  ctx.fillRect(left * TILE_SIZE, top * TILE_SIZE,
-               (right - left) * TILE_SIZE, (bottom - top) * TILE_SIZE);
+  ctx.fillRect(originX, originY, S.cols * TILE_SIZE, S.rows * TILE_SIZE);
 
   // 2) Punch visible holes only, in one path
   ctx.globalCompositeOperation = "destination-out";

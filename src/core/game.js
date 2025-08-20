@@ -98,9 +98,10 @@ function frame(now) {
     y: windVel.vyTilesPerSec * tileSize * dt
   };
 
+  // External forces on the world (camera motion removed)
   const worldMotion = {
-    x: -camMotion.x + windMotion.x,
-    y: -camMotion.y + windMotion.y
+    x: windMotion.x,
+    y: windMotion.y
   };
 
   miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
