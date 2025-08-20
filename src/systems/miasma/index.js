@@ -3,7 +3,7 @@
 // - Density is implicit: a world tile is FOG (1) unless it's in clearedTiles (0).
 // - Regrow only scans viewport + pad and spreads by adjacency w/ randomness.
 
-import { worldToTile, mod } from "../../core/coords.js";
+import { worldToTile } from "../../core/coords.js";
 import { config } from "../../core/config.js";
 
 // ---- Config knobs ----
@@ -30,7 +30,7 @@ const S = {
   time: 0,
 };
 
-// Cleared world tiles: map from key -> timeCleared
+// Cleared fog tiles (relative to current origin): map from key -> timeCleared
 const clearedMap = new Map();
 const key = (tx, ty) => `${tx},${ty}`;
 
@@ -57,7 +57,9 @@ export function getOrigin()   { return { ox: S.ox, oy: S.oy }; }
 
 export function sample(wx, wy) {
   const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
-  return clearedMap.has(key(tx, ty)) ? 0 : 1;
+  // account for fog origin
+  const k = key(tx - S.ox, ty - S.oy);
+  return clearedMap.has(k) ? 0 : 1;
 }
 
 
@@ -83,12 +85,12 @@ export function clearArea(wx, wy, r, _amt = 64) {
       const dyw = centerY - wy;
       if ((dxw * dxw + dyw * dyw) > r2) continue;
 
-      const k = key(tx, ty);
-  if (!clearedMap.has(k)) {
-  clearedMap.set(k, S.time); // record clear time in seconds
-  cleared++;
-  budget--;
-}
+      const k = key(tx - S.ox, ty - S.oy);
+      if (!clearedMap.has(k)) {
+        clearedMap.set(k, S.time); // record clear time in seconds
+        cleared++;
+        budget--;
+      }
 
     }
   }
@@ -111,8 +113,22 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
 
     // Apply world motion (camera delta + wind drift) to fog origin
   if (_worldMotion) {
-    S.ox += Math.round(_worldMotion.x / TILE_SIZE);
-    S.oy += Math.round(_worldMotion.y / TILE_SIZE);
+    const shiftX = Math.round(_worldMotion.x / TILE_SIZE);
+    const shiftY = Math.round(_worldMotion.y / TILE_SIZE);
+    if (shiftX || shiftY) {
+      S.ox += shiftX;
+      S.oy += shiftY;
+
+      if (clearedMap.size) {
+        const shifted = new Map();
+        for (const [k, v] of clearedMap) {
+          const [lx, ly] = k.split(",").map(Number);
+          shifted.set(key(lx - shiftX, ly - shiftY), v);
+        }
+        clearedMap.clear();
+        for (const [k, v] of shifted) clearedMap.set(k, v);
+      }
+    }
   }
 
 
@@ -138,17 +154,19 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
   for (const [k, tCleared] of clearedMap) {
     if (budget <= 0) break;
 
-    const [tx, ty] = k.split(",").map(Number);
+    const [lx, ly] = k.split(",").map(Number);
+    const tx = lx + S.ox;
+    const ty = ly + S.oy;
     if (tx < scanLeft || tx >= scanRight || ty < scanTop || ty >= scanBottom) continue;
 
     if ((S.time - tCleared) < delayS) continue;
 
     // 4-neighbor fog presence in WORLD tile space
     const nFog =
-      (!clearedMap.has(key(tx - 1, ty))) ||
-      (!clearedMap.has(key(tx + 1, ty))) ||
-      (!clearedMap.has(key(tx, ty - 1))) ||
-      (!clearedMap.has(key(tx, ty + 1)));
+      (!clearedMap.has(key(tx - 1 - S.ox, ty - S.oy))) ||
+      (!clearedMap.has(key(tx + 1 - S.ox, ty - S.oy))) ||
+      (!clearedMap.has(key(tx - S.ox, ty - 1 - S.oy))) ||
+      (!clearedMap.has(key(tx - S.ox, ty + 1 - S.oy)));
 
     if (nFog && Math.random() < chance) {
       toGrow.push(k);
@@ -185,7 +203,8 @@ export function draw(ctx, cam, w, h) {
   for (let ty = top; ty < bottom; ty++) {
     const y = ty * TILE_SIZE;
     for (let tx = left; tx < right; tx++) {
-      if (!clearedMap.has(key(tx, ty))) continue; // <-- use clearedMap
+      const k = key(tx - S.ox, ty - S.oy);
+      if (!clearedMap.has(k)) continue; // <-- use clearedMap
       const x = tx * TILE_SIZE;
       ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
       holes++;
