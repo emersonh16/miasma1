@@ -255,8 +255,9 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
 
   // 1) Smooth camera motion via fractional accumulators (scroll on whole tiles)
   if (worldMotion.x || worldMotion.y) {
-S.camShiftX -= (worldMotion.x || 0) / TILE_SIZE; // cam right -> ring left
-S.camShiftY -= (worldMotion.y || 0) / TILE_SIZE; // cam down  -> ring up
+S.camShiftX += (worldMotion.x || 0) / TILE_SIZE; // cam right -> ring right (screen shows world moving left)
+S.camShiftY += (worldMotion.y || 0) / TILE_SIZE; // cam down  -> ring down
+
 
     let cmx = 0, cmy = 0;
     if (S.camShiftX >= 1) { cmx = Math.floor(S.camShiftX); S.camShiftX -= cmx; }
