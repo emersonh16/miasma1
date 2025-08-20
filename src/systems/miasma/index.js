@@ -344,7 +344,7 @@ if (sx || sy) scroll(sx, sy);
 
 
    // 5) Adjacency-based regrow with randomness, restricted to viewport+pad
-  const chance = MC.regrowChance ?? 0.4;
+  const chance = MC.regrowChance ?? 0.2;
   let regrowBudget = MC.regrowBudget ?? Math.floor((MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256) / 2);
   const w = S.width, h = S.height;
 
@@ -363,15 +363,22 @@ if (sx || sy) scroll(sx, sy);
     for (let tx = viewLeft; tx < viewRight && regrowBudget > 0; tx++) {
       const ix = mod(tx - S.ox, w);
       const iy = mod(ty - S.oy, h);
-      const idx = iy * w + ix;
+         const idx = iy * w + ix;
       if (S.density[idx] !== 0) continue;
-      if (S.density[idx - 1] === 1 || S.density[idx + 1] === 1 ||
-          S.density[idx - w] === 1 || S.density[idx + w] === 1) {
+
+      // Wrapped 4-neighbor checks on the ring
+      const left  = S.density[iy * w + mod(ix - 1, w)] === 1;
+      const right = S.density[iy * w + mod(ix + 1, w)] === 1;
+      const up    = S.density[mod(iy - 1, h) * w + ix] === 1;
+      const down  = S.density[mod(iy + 1, h) * w + ix] === 1;
+
+      if (left || right || up || down) {
         if (Math.random() < chance) {
           toGrow.push(idx);
           regrowBudget--;
         }
       }
+
     }
   }
 
@@ -391,7 +398,9 @@ export function draw(ctx, cam, w, h) {
 
   ctx.save();
 
-  const windOffX = (S.windX || 0) * TILE_SIZE;
+    // Wind advection is applied via scroll() in update(); draw should not add extra offsets.
+  ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
+const windOffX = (S.windX || 0) * TILE_SIZE;
   const windOffY = (S.windY || 0) * TILE_SIZE;
 
   ctx.translate(
