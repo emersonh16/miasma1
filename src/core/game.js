@@ -30,8 +30,7 @@ parent.appendChild(fogCanvas);
 initInput();
 const cam = makeCamera();
 const player = makePlayer();
-let prevCamX = cam.x;
-let prevCamY = cam.y;
+
 
 function resize() {
   const dpr = devicePixelRatio || 1;
@@ -132,13 +131,9 @@ function frame(now) {
     cam.x += a.x * speed * dt;
     cam.y += a.y * speed * dt;
 
- const camMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
-    prevCamX = cam.x;
-    prevCamY = cam.y;
-
-
     player.x = cam.x;
     player.y = cam.y;
+
 
     // Stream chunks around camera center
     chunks.streamAround(cam.x, cam.y);
@@ -155,12 +150,8 @@ function frame(now) {
       y: windVel.vyTilesPerSec * tileSize * dt
     };
 
-    const worldMotion = {
-      x: camMotion.x - windMotion.x,
-      y: camMotion.y - windMotion.y
-    };
-
-    miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
+    // Fog drift is driven ONLY by wind.
+    miasma.update(dt, cam.x, cam.y, windMotion, w, h);
 
     // Ensure player health fields (defensive)
     if (player.maxHealth == null) player.maxHealth = 100;
