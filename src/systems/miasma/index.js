@@ -13,9 +13,9 @@ const WIND_STEP_TILES = MC.windStepTiles ?? 4;   // jump every N tiles of wind
 const CLAMP_HYST      = MC.clampHysteresis ?? 1; // clamp only if margin < (MARGIN-HYST)
 const FOG_COLOR = (MC.color ?? "rgba(128,0,180,0.35)");
 
-// Internal state (binary: 0 = clear, 1 = fog)
+// Internal state (density: 0 = clear, 1 = full fog)
 const S = {
-  density: null,   // Uint8Array of 0/1
+  density: null,   // Float32Array of 0..1
   width: 0,
   height: 0,
   ox: 0,
@@ -92,13 +92,9 @@ function shiftFogPixels(dxTiles, dyTiles) {
 }
 
 
-// Permanently-cleared world tiles
-const clearedTiles = new Set();
-const tkey = (tx, ty) => `${tx},${ty}`;
-
-// Seed: full fog unless permanently cleared
-function miasmaSeed(tx, ty, _time) {
-  return clearedTiles.has(tkey(tx, ty)) ? 0 : 1;
+// Seed: always fog so cleared tiles can regrow
+function miasmaSeed(_tx, _ty) {
+  return 1;
 }
 
 // ---- Ring helpers ----
@@ -157,20 +153,22 @@ function scroll(dx, dy) {
 function ringIxIy(tx, ty) {
   return [mod(tx - S.ox, S.width), mod(ty - S.oy, S.height)];
 }
-function paintTileAtIxIy(ix, iy, filled) {
+function paintTileAtIxIy(ix, iy, density) {
   const x = ix * TILE_SIZE;
   const y = iy * TILE_SIZE;
   // always reset the pixel first to avoid alpha stacking
   S.fogCtx.clearRect(x, y, TILE_SIZE, TILE_SIZE);
-  if (filled) {
+  if (density > 0) {
+    S.fogCtx.globalAlpha = density;
     S.fogCtx.fillStyle = FOG_COLOR;
     S.fogCtx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    S.fogCtx.globalAlpha = 1;
   }
 }
 
-function paintTileWorld(tx, ty, filled) {
+function paintTileWorld(tx, ty, density) {
   const [ix, iy] = ringIxIy(tx, ty);
-  paintTileAtIxIy(ix, iy, filled);
+  paintTileAtIxIy(ix, iy, density);
 }
 
 
@@ -183,14 +181,8 @@ export function init(viewW, viewH) {
   S.oy = 0;
 
   // Init density
-  S.density = new Uint8Array(S.width * S.height);
-  for (let y = 0; y < S.height; y++) {
-    for (let x = 0; x < S.width; x++) {
-      const tx = S.ox + x;
-      const ty = S.oy + y;
-      S.density[y * S.width + x] = miasmaSeed(tx, ty, 0);
-    }
-  }
+  S.density = new Float32Array(S.width * S.height);
+  S.density.fill(miasmaSeed(0, 0));
 
   // Offscreen canvas sized to ring (in pixels)
   S.fogCanvas = document.createElement("canvas");
@@ -205,14 +197,10 @@ export function init(viewW, viewH) {
 
   // Paint initial ring once
   S.fogCtx.clearRect(0, 0, S.fogCanvas.width, S.fogCanvas.height);
+  S.fogCtx.globalAlpha = 1;
   S.fogCtx.fillStyle = FOG_COLOR;
-  for (let y = 0; y < S.height; y++) {
-    for (let x = 0; x < S.width; x++) {
-      if (S.density[y * S.width + x] === 1) {
-        S.fogCtx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-      }
-    }
-  }
+  S.fogCtx.fillRect(0, 0, S.fogCanvas.width, S.fogCanvas.height);
+  S.fogCtx.globalAlpha = 1;
 
   // Reset runtime state
   S.fillQueue.length = 0;
@@ -249,8 +237,7 @@ export function clearArea(wx, wy, r, _amt = 64) {
       const idx = iy * S.width + ix;
       if (S.density[idx] !== 0) {
         S.density[idx] = 0;                // clear in ring
-        clearedTiles.add(tkey(tx, ty));    // remember forever
-        paintTileAtIxIy(ix, iy, false);    // update offscreen
+        paintTileAtIxIy(ix, iy, 0);        // update offscreen
         cleared++;
         budget--;
       }
@@ -319,26 +306,26 @@ if (sx || sy) scroll(sx, sy);
   let edgeBudget = (MC.maxEdgeFillPerTick ?? config.maxEdgeFillPerTick ?? 128);
   while (edgeBudget > 0 && S.fillQueue.length) {
     const { index, tx, ty } = S.fillQueue.shift();
-    const v = miasmaSeed(tx, ty, S.time);
+    const v = miasmaSeed(tx, ty);
     if (S.density[index] !== v) {
       S.density[index] = v;
-      paintTileWorld(tx, ty, v === 1);
+      paintTileWorld(tx, ty, v);
     }
     edgeBudget--;
   }
 
 
-  // 5) Binary regrow (budgeted) → update offscreen only when changed
+  // 5) Gradual regrow (budgeted) → increment density toward 1
   let regrowBudget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
   const total = S.width * S.height;
+  const step = MC.regrowStep ?? 0.1;
   while (regrowBudget > 0 && total > 0) {
     const idx = S.regrowIndex;
-    const tx = S.ox + (idx % S.width);
-    const ty = S.oy + Math.floor(idx / S.width);
-    const target = miasmaSeed(tx, ty, S.time);
-    if (S.density[idx] !== target) {
-      S.density[idx] = target;
-      paintTileWorld(tx, ty, target === 1);
+    if (S.density[idx] < 1) {
+      S.density[idx] = Math.min(1, S.density[idx] + step);
+      const tx = S.ox + (idx % S.width);
+      const ty = S.oy + Math.floor(idx / S.width);
+      paintTileWorld(tx, ty, S.density[idx]);
     }
     S.regrowIndex = (S.regrowIndex + 1) % total;
     regrowBudget--;
