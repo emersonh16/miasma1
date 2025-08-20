@@ -21,7 +21,7 @@ function resize() {
   // Re-init miasma with the real view size (in world units == screen px)
   const viewW = canvas.width / devicePixelRatio;
   const viewH = canvas.height / devicePixelRatio;
-  miasma.init(viewW, viewH);
+ 
 }
 addEventListener("resize", resize);
 resize();
@@ -32,6 +32,10 @@ let lastMotion = { x: 0, y: 0 };
 const TILE_SIZE = config.miasma?.tileSize ?? 1;
 const cam = makeCamera();
 const player = makePlayer();
+const viewW = canvas.width / devicePixelRatio;
+const viewH = canvas.height / devicePixelRatio;
+miasma.init(viewW, viewH, cam.x, cam.y); // center the ring on the spindle
+
 
 // Wind gear that follows the player's movement
 wind.clearGears();

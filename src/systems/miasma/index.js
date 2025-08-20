@@ -172,13 +172,17 @@ function paintTileWorld(tx, ty, density) {
 }
 
 
-export function init(viewW, viewH) {
+export function init(viewW, viewH, centerWX = 0, centerWY = 0) {
   const VW = Math.ceil(viewW / TILE_SIZE);
   const VH = Math.ceil(viewH / TILE_SIZE);
   S.width = VW + MARGIN * 2;
   S.height = VH + MARGIN * 2;
-  S.ox = 0;
-  S.oy = 0;
+// center the ring on the given world position
+const halfW = Math.floor((VW + MARGIN * 2) / 2);
+const halfH = Math.floor((VH + MARGIN * 2) / 2);
+S.ox = Math.floor(centerWX / TILE_SIZE) - halfW;
+S.oy = Math.floor(centerWY / TILE_SIZE) - halfH;
+
 
   // Init density
   S.density = new Float32Array(S.width * S.height);
@@ -340,7 +344,6 @@ export function draw(ctx, cam, w, h) {
 
   ctx.save();
 
-  // Align to spindle (camera center) with BOTH fractional remainders
   const windOffX = (S.windX || 0) * TILE_SIZE;
   const windOffY = (S.windY || 0) * TILE_SIZE;
   const camOffX  = (S.camShiftX || 0) * TILE_SIZE;
@@ -351,9 +354,10 @@ export function draw(ctx, cam, w, h) {
     -cam.y + h / 2 - windOffY - camOffY
   );
 
-  // The offscreen ring has already been shifted in scroll().
-  // Draw it at its own origin; no extra S.ox/S.oy here.
-  ctx.drawImage(S.fogCanvas, 0, 0);
+  // draw the ring canvas at its world origin (already centered by init)
+  const px = S.ox * TILE_SIZE;
+  const py = S.oy * TILE_SIZE;
+  ctx.drawImage(S.fogCanvas, px, py);
 
   ctx.restore();
 }
