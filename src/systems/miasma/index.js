@@ -350,22 +350,15 @@ export function draw(ctx, cam, w, h) {
   if (!S.fogCanvas) return;
 
   ctx.save();
- // World-space center with BOTH remainders:
-// - wind remainder (S.windX/Y)
-// - camera remainder (S.camShiftX/Y) from smooth worldMotion
-const windOffX = (S.windX || 0) * TILE_SIZE;
-const windOffY = (S.windY || 0) * TILE_SIZE;
-const camOffX  = (S.camShiftX || 0) * TILE_SIZE;
-const camOffY  = (S.camShiftY || 0) * TILE_SIZE;
 
-ctx.translate(
-  -cam.x + w / 2 - windOffX - camOffX,
-  -cam.y + h / 2 - windOffY - camOffY
-);
+  // Camera centers world on screen
+  ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
 
-  // Draw the entire ring at its world position; canvas clipping takes care of viewport.
+  // Position the fog ring at its world origin
   const px = S.ox * TILE_SIZE;
   const py = S.oy * TILE_SIZE;
+
+  // Draw the whole ring canvas, anchored at (px, py)
   ctx.drawImage(S.fogCanvas, px, py);
 
   ctx.restore();
