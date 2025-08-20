@@ -145,9 +145,8 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
     S.ox += shiftX;
     S.oy += shiftY;
 
-    // Keep shimmer phase aligned to fog when origin shifts whole tiles
-    S.noiseOffX += shiftX * TILE_SIZE;
-    S.noiseOffY += shiftY * TILE_SIZE;
+    S.ox += shiftX;
+    S.oy += shiftY;
 
     if (clearedMap.size) {
         const shifted = new Map();
@@ -175,8 +174,9 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
     const SMOOTH = 4; // heavier values = more smoothing
     S.vxSh += (targetVX - S.vxSh) * Math.min(1, SMOOTH * dt);
     S.vySh += (targetVY - S.vySh) * Math.min(1, SMOOTH * dt);
-    S.noiseOffX += S.vxSh * dt;
-    S.noiseOffY += S.vySh * dt;
+    S.noiseOffX -= S.vxSh * dt;
+    S.noiseOffY -= S.vySh * dt;
+
   }
 
 
@@ -295,12 +295,17 @@ const ox = ((S.noiseOffX % NOISE_SIZE) + NOISE_SIZE) % NOISE_SIZE;
 const oy = ((S.noiseOffY % NOISE_SIZE) + NOISE_SIZE) % NOISE_SIZE;
 
 ctx.save();
-ctx.translate(Math.floor(pxLeft + ox), Math.floor(pxTop + oy));
-ctx.globalAlpha = (MC.shimmerAlpha ?? 0.35); // bump for visibility while tuning
-ctx.globalCompositeOperation = "soft-light"; // fallback to 'multiply' if needed
+ctx.translate(pxLeft, pxTop);
+ctx.globalAlpha = (MC.shimmerAlpha ?? 0.35);
+ctx.globalCompositeOperation = "soft-light";
+
+// Apply phase offset directly to the pattern
+pat.setTransform(new DOMMatrix().translate(ox, oy));
 ctx.fillStyle = pat;
+
 ctx.fillRect(0, 0, pxWidth, pxHeight);
 ctx.restore();
+
 
 ctx.globalAlpha = prevAlpha;
 ctx.globalCompositeOperation = prevOp;
