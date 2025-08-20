@@ -30,6 +30,8 @@ parent.appendChild(fogCanvas);
 initInput();
 const cam = makeCamera();
 const player = makePlayer();
+let prevCamX = cam.x;
+let prevCamY = cam.y;
 
 function resize() {
   const dpr = devicePixelRatio || 1;
@@ -121,14 +123,15 @@ function frame(now) {
   const h = canvas.height / devicePixelRatio;
 
   // UPDATE — only when not paused/dead
-  let camMotion = { x: 0, y: 0 };
   if (!state.paused && !state.dead) {
     const a = axis();
     const speed = config.player.speed;
-    const prevCamX = cam.x, prevCamY = cam.y;
 
     cam.x += a.x * speed * dt;
     cam.y += a.y * speed * dt;
+    const camMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
+    prevCamX = cam.x;
+    prevCamY = cam.y;
 
     // Player stays at camera center (for aim)
     player.x = cam.x;
@@ -136,9 +139,6 @@ function frame(now) {
 
     // Stream chunks around camera center
     chunks.streamAround(cam.x, cam.y);
-
-    // Real world motion under camera (camera delta + wind drift)
-    camMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
 
     const windVel = wind.getVelocity({
       centerWX: cam.x,
@@ -151,10 +151,9 @@ function frame(now) {
       x: windVel.vxTilesPerSec * tileSize * dt,
       y: windVel.vyTilesPerSec * tileSize * dt
     };
-
     const worldMotion = {
-      x: camMotion.x + windMotion.x,
-      y: camMotion.y + windMotion.y
+      x: windMotion.x - camMotion.x,
+      y: windMotion.y - camMotion.y
     };
 
     miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
