@@ -63,8 +63,8 @@ export function clear(ctx, w, h, cam) {
 
   // World anchored: offset pattern by camera position
   const pat = ensureEarthPattern(ctx);
-  const ox = -mod(cam?.x ?? 0, earthSize);
-  const oy = -mod(cam?.y ?? 0, earthSize);
+const ox = -Math.floor(mod(cam?.x ?? 0, earthSize));
+const oy = -Math.floor(mod(cam?.y ?? 0, earthSize));
 
   ctx.save();
   ctx.translate(ox, oy);

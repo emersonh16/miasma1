@@ -18,10 +18,13 @@ const ctx = canvas.getContext("2d");
 const fogCanvas = document.createElement("canvas");
 const fogCtx = fogCanvas.getContext("2d", { alpha: true });
 
-// Stack them
-Object.assign(canvas.style,    { position: "absolute", inset: "0", display: "block" });
-Object.assign(fogCanvas.style,{ position: "absolute", inset: "0", display: "block", pointerEvents: "none" });
-document.body.appendChild(fogCanvas);
+// Ensure both canvases share the SAME parent and CSS box
+const parent = canvas.parentElement || document.body;
+if (!parent.style.position) parent.style.position = "relative";
+Object.assign(canvas.style,    { position: "absolute", left: "0", top: "0", width: "100%", height: "100%", display: "block", zIndex: "0" });
+Object.assign(fogCanvas.style, { position: "absolute", left: "0", top: "0", width: "100%", height: "100%", display: "block", zIndex: "1", pointerEvents: "none" });
+parent.appendChild(fogCanvas);
+
 
 
 // --- Input & actors ---
@@ -30,21 +33,29 @@ const cam = makeCamera();
 const player = makePlayer();
 
 function resize() {
-  const dw = Math.floor(innerWidth  * devicePixelRatio);
-  const dh = Math.floor(innerHeight * devicePixelRatio);
+  const dpr = devicePixelRatio || 1;
+  const cssW = Math.floor(innerWidth);
+  const cssH = Math.floor(innerHeight);
 
-  // Base canvas
-  canvas.width = dw;  canvas.height = dh;
-  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  // Match backing store sizes
+  canvas.width = Math.floor(cssW * dpr);
+  canvas.height = Math.floor(cssH * dpr);
+  fogCanvas.width = canvas.width;
+  fogCanvas.height = canvas.height;
 
-  // Fog canvas (same size)
-  fogCanvas.width = dw;  fogCanvas.height = dh;
-  fogCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  // Identical transforms
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  fogCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const viewW = dw / devicePixelRatio;
-  const viewH = dh / devicePixelRatio;
-  miasma.init(viewW, viewH, cam.x, cam.y);
+  // Turn off smoothing (prevents shimmer blur differences)
+  ctx.imageSmoothingEnabled = false;
+  fogCtx.imageSmoothingEnabled = false;
+
+  const viewW = canvas.width / dpr;
+  const viewH = canvas.height / dpr;
+  miasma.init(viewW, viewH, cam.x, cam.y);  // centers fog on camera:contentReference[oaicite:0]{index=0}
 }
+
 
 addEventListener("resize", resize);
 resize();
@@ -134,12 +145,21 @@ function frame(now) {
   ctx.clearRect(0, 0, w, h);
   clear(ctx, w, h, cam); // earth texture (world-anchored)
 
-  ctx.save();
-  ctx.translate(w / 2, h / 2);
-  if (config.flags.grid) drawGrid(ctx, cam, w, h, 64);
-  beam.draw(ctx, cam, player);
-  drawPlayer(ctx, cam, player);
-  ctx.restore();
+// BASE LAYER
+ctx.clearRect(0, 0, w, h);
+clear(ctx, w, h, cam);                 // ground (world-anchored):contentReference[oaicite:2]{index=2}
+ctx.save();
+ctx.translate(w / 2, h / 2);
+if (config.flags.grid) drawGrid(ctx, cam, w, h, 64);
+beam.draw(ctx, cam, player);
+drawPlayer(ctx, cam, player);
+ctx.restore();
+
+// FOG OVERLAY
+fogCtx.clearRect(0, 0, w, h);
+miasma.draw(fogCtx, cam, w, h);        // handles its own cam translate:contentReference[oaicite:3]{index=3}
+drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
+
 
   // Fog overlay layer
   fogCtx.clearRect(0, 0, w, h);
