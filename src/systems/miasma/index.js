@@ -90,32 +90,27 @@ function shiftFogPixels(dxTiles, dyTiles) {
   S.fogCtx.clearRect(0, 0, W, H);
   S.fogCtx.drawImage(S.tmpCanvas, 0, 0);
 
-  
-  // Clear newly exposed edges (no wrapping bleed)
+  // Enqueue new edges instead of painting them blindly
   if (dxTiles > 0) {
-    const cw = dxTiles * TILE_SIZE;
-    S.fogCtx.clearRect(W - cw, 0, cw, H);
-    // Seed fill to avoid visual gaps
-    S.fogCtx.fillStyle = FOG_COLOR;
-    S.fogCtx.fillRect(W - cw, 0, cw, H);
+    for (let i = 0; i < dxTiles; i++) {
+      enqueueColumn(S.ox + S.width - 1 + i);
+    }
   } else if (dxTiles < 0) {
-    const cw = -dxTiles * TILE_SIZE;
-    S.fogCtx.clearRect(0, 0, cw, H);
-    S.fogCtx.fillStyle = FOG_COLOR;
-    S.fogCtx.fillRect(0, 0, cw, H);
+    for (let i = 0; i < -dxTiles; i++) {
+      enqueueColumn(S.ox - i);
+    }
   }
   if (dyTiles > 0) {
-    const ch = dyTiles * TILE_SIZE;
-    S.fogCtx.clearRect(0, H - ch, W, ch);
-    S.fogCtx.fillStyle = FOG_COLOR;
-    S.fogCtx.fillRect(0, H - ch, W, ch);
+    for (let i = 0; i < dyTiles; i++) {
+      enqueueRow(S.oy + S.height - 1 + i);
+    }
   } else if (dyTiles < 0) {
-    const ch = -dyTiles * TILE_SIZE;
-    S.fogCtx.clearRect(0, 0, W, ch);
-    S.fogCtx.fillStyle = FOG_COLOR;
-    S.fogCtx.fillRect(0, 0, W, ch);
+    for (let i = 0; i < -dyTiles; i++) {
+      enqueueRow(S.oy - i);
+    }
   }
 }
+
 
 
 // Seed: always fog so cleared tiles can regrow
