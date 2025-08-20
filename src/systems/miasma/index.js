@@ -347,12 +347,11 @@ export function draw(ctx, cam, w, h) {
 
   const windOffX = (S.windX || 0) * TILE_SIZE;
   const windOffY = (S.windY || 0) * TILE_SIZE;
-  const camOffX  = (S.camShiftX || 0) * TILE_SIZE;
-  const camOffY  = (S.camShiftY || 0) * TILE_SIZE;
+
 
   ctx.translate(
-    -cam.x + w / 2 - windOffX - camOffX,
-    -cam.y + h / 2 - windOffY - camOffY
+    -cam.x + w / 2 - windOffX,
+    -cam.y + h / 2 - windOffY
   );
 
   // draw the ring canvas at its world origin (already centered by init)
