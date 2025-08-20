@@ -7,6 +7,7 @@ import { makePlayer, drawPlayer } from "../entities/player.js";
 import { clear, drawGrid } from "../render/draw.js";
 import * as chunks from "../world/chunks.js";
 import * as wind from "../systems/wind/index.js";
+import { drawDevHUD } from "../render/devhud.js";
 
 // --- Canvas ---
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("game"));
@@ -38,8 +39,7 @@ wind.addGear({
   speedTilesPerSec: 0,
   coverage: () => 0,
 });
-wind.setGear(0, { locked: true, dirDeg: 90, speedTilesPerSec: 1 });
-
+wind.setGear(0, { locked: true, dirDeg: 45, speedTilesPerSec: 50 });
 
 // --- Mouse state (screen coords) ---
 let mouseX = 0, mouseY = 0;
@@ -105,7 +105,6 @@ function frame(now) {
 
   miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
 
-
   // Aim beam at mouse (screen center = player)
   const aimX = mouseX / devicePixelRatio - w / 2;
   const aimY = mouseY / devicePixelRatio - h / 2;
@@ -132,16 +131,8 @@ function frame(now) {
   // Screen-space overlays
   miasma.draw(ctx, cam, w, h);
 
-  // Debug HUD (optional)
-  const wv = wind.getVelocity({ centerWX: cam.x, centerWY: cam.y, time: 0, tileSize: miasma.getTileSize() });
-  const o = miasma.getOrigin();
-  ctx.save();
-  ctx.fillStyle = "#fff";
-  ctx.font = "12px monospace";
-  ctx.fillText(`camΔ: ${worldMotion.x.toFixed(2)}, ${worldMotion.y.toFixed(2)}`, 8, 16);
-  ctx.fillText(`wind: ${wv.vxTilesPerSec.toFixed(2)}, ${wv.vyTilesPerSec.toFixed(2)} tiles/s`, 8, 32);
-  ctx.fillText(`ring: ox=${o.ox}, oy=${o.oy}`, 8, 48);
-  ctx.restore();
+  // Developer HUD
+  drawDevHUD(ctx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
 
   requestAnimationFrame(frame);
 }

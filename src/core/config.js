@@ -1,16 +1,13 @@
 export const config = {
   seed: 1337,
-  flags: { miasma: true, beam: true, grid: true },
+  flags: { miasma: true, beam: true, grid: true, devhud: true },
 
   // Beam tuning (all units in fog tiles; converted at runtime using miasma.tileSize)
   beam: {
     laser:  { steps: 24, stepTiles: 3, radiusTiles: 6, thicknessTiles: 0.5 },
-    cone:   { steps: 10, stepTiles: 3, radiusTiles: 10 },        // half‑width at far end
+    cone:   { steps: 10, stepTiles: 3, radiusTiles: 10 },        // half-width at far end
     bubble: { radiusTiles: 14 }
   },
-
-
-
 
   // World budgets
   maxChunkGenPerFrame: 1,
@@ -24,8 +21,8 @@ export const config = {
 
     // regrow tuning
     regrowChance: 0.2,       // probability a candidate cell regrows this tick
-    regrowPad: 6,           // draw pad (punch/paint area)
-    regrowScanPad: 24,      // OFFSCREEN regrow scan pad (bigger than regrowPad)
+    regrowPad: 6,            // draw pad (punch/paint area)
+    regrowScanPad: 24,       // OFFSCREEN regrow scan pad (bigger than regrowPad)
     regrowBudget: 800,       // max cells that can regrow per frame
     regrowDelay: 1.0,        // seconds after clear before regrow eligible
     regrowSpeedFactor: 0.3,  // <1 slows overall spread rate
@@ -35,10 +32,6 @@ export const config = {
     maxTilesUpdatedPerTick: 12000,
     maxDrawTilesPerFrame: 20000
   },
-
-
-
-
 
   // Fallbacks still used by code if miasma.* not present
   maxEdgeFillPerTick: 128,
