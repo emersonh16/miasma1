@@ -236,7 +236,7 @@ export function clearArea(wx, wy, r, _amt = 64) {
   const [cx, cy] = worldToTile(wx, wy, TILE_SIZE);
   const tr = Math.ceil(r / TILE_SIZE);
   let cleared = 0;
-  let budget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
+  let budget = Math.min(_amt, MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
 
   for (let dy = -tr; dy <= tr && budget > 0; dy++) {
     for (let dx = -tr; dx <= tr && budget > 0; dx++) {
@@ -351,18 +351,27 @@ export function draw(ctx, cam, w, h) {
 
   ctx.save();
 
-  // Camera centers world on screen
-  ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
+  // Align record spindle → camera center.
+  // Use fractional remainders to keep smooth drift.
+  const windOffX = (S.windX || 0) * TILE_SIZE;
+  const windOffY = (S.windY || 0) * TILE_SIZE;
+  const camOffX  = (S.camShiftX || 0) * TILE_SIZE;
+  const camOffY  = (S.camShiftY || 0) * TILE_SIZE;
 
-  // Position the fog ring at its world origin
-  const px = S.ox * TILE_SIZE;
-  const py = S.oy * TILE_SIZE;
+ctx.translate(
+  -cam.x + w / 2 - windOffX - camOffX,
+  -cam.y + h / 2 - windOffY - camOffY
+);
 
-  // Draw the whole ring canvas, anchored at (px, py)
-  ctx.drawImage(S.fogCanvas, px, py);
+// Draw at the ring origin in world space
+const px = S.ox * TILE_SIZE;
+const py = S.oy * TILE_SIZE;
+ctx.drawImage(S.fogCanvas, px, py);
+
 
   ctx.restore();
 }
+
 
 
 

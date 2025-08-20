@@ -33,7 +33,7 @@ wind.clearGears();
 wind.addGear({
   locked: true,
   dirDeg: 180,           // 180° = left
-  speedTilesPerSec: 5,   // "5 knots"
+  speedTilesPerSec: 40,   // "5 knots"
   coverage: () => 1,     // affect whole screen for now
 });
 
