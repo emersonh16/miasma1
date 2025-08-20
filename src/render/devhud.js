@@ -1,5 +1,7 @@
 import { config } from "../core/config.js";
 import { worldToTile } from "../core/coords.js";
+import * as beam from "../systems/beam/index.js";
+
 
 let fps = 0, last = performance.now(), frames = 0;
 
@@ -16,14 +18,24 @@ const SMOOTH = 0.18;             // UI smoothing factor per frame (no dt)
 
 // positions
 const geom = {
-  panel:  { x: 0, y: 0, w: PANEL_W, h: PANEL_H },
+  panel:  { x: 0, y: 0, w: PANEL_W, h: PANEL_H + 108 }, // extra space for beam sliders
   compass:{ cx: 0, cy: 0, r: COMPASS_R },
   slider: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
+
+  // beam sliders (stacked)
+  bBubble: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
+  bLaserL: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
+  bLaserT: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
+  bConeL:  { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
+  bConeA:  { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
 };
 
 // interaction + UI-smoothing state
 let draggingDir = false;
 let draggingSpeed = false;
+let draggingBeam = null; // "bubble" | "laserL" | "laserT" | "coneL" | "coneA"
+let beamModule = null;
+
 let mouseDown = false;
 let windModule = null;
 let dispDeg = 0;                 // smoothed display angle (deg)
@@ -45,25 +57,65 @@ function setWind(patch) {
   windModule.setGear(0, { ...patch, locked: true });
 }
 
+function setBeam(patch) {
+  if (!beamModule) return;
+  beamModule.setParams(patch);
+}
+function drawSlider(ctx, rect, t, label, fmtVal) {
+  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  const knobX = Math.round(rect.x + t * rect.w);
+  const knobY = rect.y + rect.h / 2;
+  ctx.fillStyle = "#ffd700";
+  ctx.beginPath(); ctx.arc(knobX, knobY, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.stroke();
+  if (label) {
+    ctx.fillStyle = "#ccc";
+    ctx.fillText(`${label}: ${fmtVal}`, rect.x, rect.y - 14);
+  }
+}
+
+
 // --- Input (HUD-only) ---
 addEventListener("mousedown", (e) => {
-  if (!config.flags.devhud || !windModule) return;
+  if (!config.flags.devhud) return;
+  if (!beamModule) beamModule = beam; // allow beam sliders even if wind is absent
+
   mouseDown = true;
   const mx = e.clientX, my = e.clientY;
+
+  // Wind controls
   if (pointInCircle(mx, my, geom.compass)) {
     draggingDir = true; updateDirFromMouse(mx, my);
-  } else if (pointInRect(mx, my, geom.slider)) {
+    return;
+  }
+  if (pointInRect(mx, my, geom.slider)) {
     draggingSpeed = true; updateSpeedFromMouse(mx);
+    return;
+  }
+
+  // Beam sliders
+  const tests = [
+    ["bubble", geom.bBubble],
+    ["laserL", geom.bLaserL],
+    ["laserT", geom.bLaserT],
+    ["coneL",  geom.bConeL],
+    ["coneA",  geom.bConeA],
+  ];
+  for (const [name, r] of tests) {
+    if (pointInRect(mx, my, r)) { draggingBeam = name; updateBeamFromMouse(mx, name); return; }
   }
 });
+
 addEventListener("mousemove", (e) => {
-  if (!mouseDown) return;
-  if (!config.flags.devhud || !windModule) return;
+  if (!mouseDown || !config.flags.devhud) return;
   const mx = e.clientX, my = e.clientY;
-  if (draggingDir) updateDirFromMouse(mx, my);
-  else if (draggingSpeed) updateSpeedFromMouse(mx);
+  if (draggingDir)       { updateDirFromMouse(mx, my); return; }
+  if (draggingSpeed)     { updateSpeedFromMouse(mx);   return; }
+  if (draggingBeam)      { updateBeamFromMouse(mx, draggingBeam); return; }
 });
-function endDrag() { mouseDown = false; draggingDir = false; draggingSpeed = false; }
+
+function endDrag() { mouseDown = false; draggingDir = false; draggingSpeed = false; draggingBeam = null; }
 addEventListener("mouseup", endDrag);
 addEventListener("mouseleave", endDrag);
 addEventListener("blur", endDrag);
@@ -80,6 +132,28 @@ function updateSpeedFromMouse(mx) {
   const spd = SPEED_MIN + q * (SPEED_MAX - SPEED_MIN);
   setWind({ speedTilesPerSec: spd });
 }
+
+function updateBeamFromMouse(mx, which) {
+  if (!beamModule) return;
+  const clamp01 = (t) => Math.max(0, Math.min(1, t));
+
+  // [rect, min, max, key, formatter]
+  const map = {
+    bubble: [geom.bBubble, 16, 256, "bubbleRadius",       (v) => `${Math.round(v*2)} px Ø`], // 32–512 Ø
+    laserL: [geom.bLaserL, 96, 640, "laserLength",        (v) => `${Math.round(v)} px`],
+    laserT: [geom.bLaserT, 2,  24,  "laserThickness",     (v) => `${v.toFixed(1)} px`],
+    coneL:  [geom.bConeL,  128,512, "coneLength",         (v) => `${Math.round(v)} px`],
+    coneA:  [geom.bConeA,  20, 80,  "coneHalfAngleDeg",   (v) => `${Math.round(v*2)}°`],     // show total
+  };
+
+  const row = map[which];
+  if (!row) return;
+  const [rect, lo, hi, key] = row;
+  const t = clamp01((mx - rect.x) / rect.w);
+  const val = lo + t * (hi - lo);
+  setBeam({ [key]: val });
+}
+
 
 /**
  * Dev HUD overlay (interactive wind controls)
@@ -169,8 +243,55 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
   ctx.beginPath(); ctx.arc(knobX, knobY, 6, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.stroke();
 
-  // Other debug lines
-  let y = geom.slider.y + 28;
+  // --- Beam sliders layout (stacked under wind slider) ---
+  const BP = (typeof beam.getParams === "function")
+    ? beam.getParams()
+    : { bubbleRadius: 64, laserLength: 384, laserThickness: 8, coneLength: 224, coneHalfAngleDeg: 64 };
+
+  const x0 = geom.panel.x + 30;
+  let y0 = geom.slider.y + 40; // start a bit below the wind speed slider
+  const gap = 22;
+
+  // place rects
+  geom.bBubble.x = x0; geom.bBubble.y = y0; y0 += gap;
+  geom.bLaserL.x = x0; geom.bLaserL.y = y0; y0 += gap;
+  geom.bLaserT.x = x0; geom.bLaserT.y = y0; y0 += gap;
+  geom.bConeL.x  = x0; geom.bConeL.y  = y0; y0 += gap;
+  geom.bConeA.x  = x0; geom.bConeA.y  = y0;
+
+  // section label
+  ctx.fillStyle = "#ccc";
+  ctx.fillText("Beam", geom.panel.x + 8, geom.slider.y + 24);
+
+  // draw sliders (t is 0..1 normalized value in each range)
+  drawSlider(
+    ctx, geom.bBubble,
+    (BP.bubbleRadius - 16) / (256 - 16),
+    "Bubble", `${Math.round(BP.bubbleRadius * 2)} px Ø`
+  );
+  drawSlider(
+    ctx, geom.bLaserL,
+    (BP.laserLength - 96) / (640 - 96),
+    "Laser Len", `${Math.round(BP.laserLength)} px`
+  );
+  drawSlider(
+    ctx, geom.bLaserT,
+    (BP.laserThickness - 2) / (24 - 2),
+    "Laser Thick", `${BP.laserThickness.toFixed(1)} px`
+  );
+  drawSlider(
+    ctx, geom.bConeL,
+    (BP.coneLength - 128) / (512 - 128),
+    "Cone Len", `${Math.round(BP.coneLength)} px`
+  );
+  drawSlider(
+    ctx, geom.bConeA,
+    (BP.coneHalfAngleDeg - 20) / (80 - 20),
+    "Cone Angle", `${Math.round(BP.coneHalfAngleDeg * 2)}°`
+  );
+
+  // --- Other debug lines (push below the last slider) ---
+  let y = geom.bConeA.y + 28;
   const line = (txt) => { ctx.fillStyle = "#fff"; ctx.fillText(txt, geom.panel.x + 8, y); y += 14; };
   line(`Cam: ${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}`);
   line(`Player: ${player.x.toFixed(1)}, ${player.y.toFixed(1)}`);
@@ -178,7 +299,7 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
   line(`Tile: ${tx}, ${ty}`);
   const o = miasma.getOrigin();
   line(`Miasma: ox=${o.ox}, oy=${o.oy}`);
-  line(`Drag circle = dir (360°), bar = speed (~100 steps)`);
+  line(`Drag: circle=dir, bar=speed, sliders=beam`);
 
   ctx.restore();
 }
