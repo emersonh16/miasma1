@@ -38,6 +38,60 @@ const S = {
   fogCtx: null,
 };
 
+// Temp canvas for wrap copies
+function ensureTmp() {
+  if (!S.tmpCanvas) {
+    S.tmpCanvas = document.createElement("canvas");
+    S.tmpCanvas.width = S.fogCanvas.width;
+    S.tmpCanvas.height = S.fogCanvas.height;
+    S.tmpCtx = S.tmpCanvas.getContext("2d");
+  }
+}
+
+// Shift the offscreen fog image by whole tiles (dx,dy), wrapping around
+function shiftFogPixels(dxTiles, dyTiles) {
+  if (!S.fogCanvas) return;
+  if (!dxTiles && !dyTiles) return;
+
+  ensureTmp();
+  const W = S.fogCanvas.width;
+  const H = S.fogCanvas.height;
+
+  // pixel shift for the offscreen image
+  const px = (-dxTiles * TILE_SIZE) % W;
+  const py = (-dyTiles * TILE_SIZE) % H;
+
+  // Normalize into [0..W/H)
+  const norm = (v, m) => ((v % m) + m) % m;
+  const sx = norm(px, W);
+  const sy = norm(py, H);
+
+  const sw1 = W - sx;
+  const sh1 = H - sy;
+
+  S.tmpCtx.clearRect(0, 0, W, H);
+
+  // top-left piece
+  S.tmpCtx.drawImage(S.fogCanvas, sx, sy, sw1, sh1, 0, 0, sw1, sh1);
+  // top-right wrap
+  if (sx > 0) {
+    S.tmpCtx.drawImage(S.fogCanvas, 0, sy, sx, sh1, sw1, 0, sx, sh1);
+  }
+  // bottom-left wrap
+  if (sy > 0) {
+    S.tmpCtx.drawImage(S.fogCanvas, sx, 0, sw1, sy, 0, sh1, sw1, sy);
+  }
+  // bottom-right wrap
+  if (sx > 0 && sy > 0) {
+    S.tmpCtx.drawImage(S.fogCanvas, 0, 0, sx, sy, sw1, sh1, sx, sy);
+  }
+
+  // Swap back
+  S.fogCtx.clearRect(0, 0, W, H);
+  S.fogCtx.drawImage(S.tmpCanvas, 0, 0);
+}
+
+
 // Permanently-cleared world tiles
 const clearedTiles = new Set();
 const tkey = (tx, ty) => `${tx},${ty}`;
@@ -64,18 +118,40 @@ function enqueueRow(ty) {
     S.fillQueue.push({ index, tx, ty });
   }
 }
+
+
 function scroll(dx, dy) {
+  // Shift offscreen pixels by full tile amounts (can be >1)
+  if (dx) shiftFogPixels(dx, 0);
+  if (dy) shiftFogPixels(0, dy);
+
+  // Update ring origin and enqueue all newly exposed edges
   if (dx > 0) {
-    for (let i = 0; i < dx; i++) { S.ox++; enqueueColumn(S.ox + S.width - 1); }
+    for (let i = 0; i < dx; i++) {
+      S.ox++;
+      enqueueColumn(S.ox + S.width - 1);
+    }
   } else if (dx < 0) {
-    for (let i = 0; i < -dx; i++) { S.ox--; enqueueColumn(S.ox); }
+    for (let i = 0; i < -dx; i++) {
+      S.ox--;
+      enqueueColumn(S.ox);
+    }
   }
+
   if (dy > 0) {
-    for (let i = 0; i < dy; i++) { S.oy++; enqueueRow(S.oy + S.height - 1); }
+    for (let i = 0; i < dy; i++) {
+      S.oy++;
+      enqueueRow(S.oy + S.height - 1);
+    }
   } else if (dy < 0) {
-    for (let i = 0; i < -dy; i++) { S.oy--; enqueueRow(S.oy); }
+    for (let i = 0; i < -dy; i++) {
+      S.oy--;
+      enqueueRow(S.oy);
+    }
   }
 }
+
+
 
 // ---- Offscreen paint helpers ----
 function ringIxIy(tx, ty) {
@@ -84,16 +160,12 @@ function ringIxIy(tx, ty) {
 function paintTileAtIxIy(ix, iy, filled) {
   const x = ix * TILE_SIZE;
   const y = iy * TILE_SIZE;
+  // always reset the pixel first to avoid alpha stacking
+  S.fogCtx.clearRect(x, y, TILE_SIZE, TILE_SIZE);
   if (filled) {
     S.fogCtx.fillStyle = FOG_COLOR;
     S.fogCtx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-  } else {
-    S.fogCtx.clearRect(x, y, TILE_SIZE, TILE_SIZE);
   }
-}
-function paintTileWorld(tx, ty, filled) {
-  const [ix, iy] = ringIxIy(tx, ty);
-  paintTileAtIxIy(ix, iy, filled);
 }
 
 export function init(viewW, viewH) {
@@ -119,6 +191,11 @@ export function init(viewW, viewH) {
   S.fogCanvas.width = S.width * TILE_SIZE;
   S.fogCanvas.height = S.height * TILE_SIZE;
   S.fogCtx = S.fogCanvas.getContext("2d", { alpha: true });
+
+    // reset temp wrap surface to match new size
+  S.tmpCanvas = null;
+  S.tmpCtx = null;
+
 
   // Paint initial ring once
   S.fogCtx.clearRect(0, 0, S.fogCanvas.width, S.fogCanvas.height);
@@ -192,21 +269,20 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
     if (cmx || cmy) scroll(cmx, cmy);
   }
 
-  // 2) Wind advection — jump in N-tile bursts to avoid tug-of-war
-  const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
-  S.windX += (wv.vxTilesPerSec || 0) * dt;  // tiles
-  S.windY += (wv.vyTilesPerSec || 0) * dt;  // tiles
+// 2) Wind advection — smooth fractional with whole-tile scrolls
+const wv = wind.getVelocity({ centerWX, centerWY, time: S.time, tileSize: TILE_SIZE });
+S.windX += (wv.vxTilesPerSec || 0) * dt;  // tiles
+S.windY += (wv.vyTilesPerSec || 0) * dt;  // tiles
 
-  let sx = 0, sy = 0;
-  if (Math.abs(S.windX) >= WIND_STEP_TILES) {
-    sx = (S.windX > 0 ? 1 : -1) * WIND_STEP_TILES;
-    S.windX -= sx;
-  }
-  if (Math.abs(S.windY) >= WIND_STEP_TILES) {
-    sy = (S.windY > 0 ? 1 : -1) * WIND_STEP_TILES;
-    S.windY -= sy;
-  }
-  if (sx || sy) scroll(sx, sy);
+let sx = 0, sy = 0;
+if (S.windX >= 1)      { sx = Math.floor(S.windX);  S.windX -= sx; }
+else if (S.windX <= -1){ sx = Math.ceil(S.windX);   S.windX -= sx; }
+
+if (S.windY >= 1)      { sy = Math.floor(S.windY);  S.windY -= sy; }
+else if (S.windY <= -1){ sy = Math.ceil(S.windY);   S.windY -= sy; }
+
+if (sx || sy) scroll(sx, sy);
+
 
   // 3) Margin clamp with hysteresis — only top up starving edges, never recenter
   const VW = Math.ceil(viewW / TILE_SIZE);
@@ -233,15 +309,18 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
     if (need > 0) scroll(0, need);
   }
 
-  // 4) Edge fill → update both density and offscreen
+  // 4) Edge fill → update both density and offscreen (idempotent)
   let edgeBudget = (MC.maxEdgeFillPerTick ?? config.maxEdgeFillPerTick ?? 128);
   while (edgeBudget > 0 && S.fillQueue.length) {
     const { index, tx, ty } = S.fillQueue.shift();
     const v = miasmaSeed(tx, ty, S.time);
-    S.density[index] = v;
-    paintTileWorld(tx, ty, v === 1);
+    if (S.density[index] !== v) {
+      S.density[index] = v;
+      paintTileWorld(tx, ty, v === 1);
+    }
     edgeBudget--;
   }
+
 
   // 5) Binary regrow (budgeted) → update offscreen only when changed
   let regrowBudget = (MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
@@ -260,21 +339,67 @@ export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, vie
   }
 }
 
+// Blit a viewport from the ring canvas, wrapping at edges (up to 4 draws)
+function blitWrapped(ctx, src, dst) {
+  const W = S.fogCanvas.width;
+  const H = S.fogCanvas.height;
+
+  // put sx,sy into [0..W), [0..H)
+  const norm = (v, m) => ((v % m) + m) % m;
+
+  let sx = norm(src.x, W);
+  let sy = norm(src.y, H);
+  const sw = src.w;
+  const sh = src.h;
+
+  const dx = dst.x;
+  const dy = dst.y;
+
+  // how much fits before wrapping?
+  const sw1 = Math.min(sw, W - sx);
+  const sh1 = Math.min(sh, H - sy);
+
+  // draw top-left piece
+  ctx.drawImage(S.fogCanvas, sx, sy, sw1, sh1, dx, dy, sw1, sh1);
+
+  // if wraps horizontally
+  if (sw1 < sw) {
+    const sw2 = sw - sw1;
+    ctx.drawImage(S.fogCanvas, 0, sy, sw2, sh1, dx + sw1, dy, sw2, sh1);
+  }
+
+  // if wraps vertically
+  if (sh1 < sh) {
+    const sh2 = sh - sh1;
+    ctx.drawImage(S.fogCanvas, sx, 0, sw1, sh2, dx, dy + sh1, sw1, sh2);
+
+    // if wraps both horizontally and vertically (bottom-right quadrant)
+    if (sw1 < sw) {
+      const sw2 = sw - sw1;
+      ctx.drawImage(S.fogCanvas, 0, 0, sw2, sh2, dx + sw1, dy + sh1, sw2, sh2);
+    }
+  }
+}
+
 export function draw(ctx, cam, w, h) {
   if (!S.fogCanvas) return;
 
-  // World-space: center the world on screen (no sub-pixel rounding here)
   ctx.save();
-  ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
+  // World-space center
+// include fractional wind remainder for sub-pixel smoothness
+const fracOffX = (S.windX || 0) * TILE_SIZE;
+const fracOffY = (S.windY || 0) * TILE_SIZE;
+ctx.translate(-cam.x + w / 2 - fracOffX, -cam.y + h / 2 - fracOffY);
 
-  // Ring’s top-left world pixel
+
+  // Draw the entire ring at its world position; canvas clip crops to view.
   const px = S.ox * TILE_SIZE;
   const py = S.oy * TILE_SIZE;
-
-  // Single blit of the whole ring buffer
   ctx.drawImage(S.fogCanvas, px, py);
 
   ctx.restore();
 }
+
+
 
 export function getTileSize() { return TILE_SIZE; }
