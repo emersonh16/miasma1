@@ -114,16 +114,20 @@ function frame(now) {
   clear(ctx, w, h);
 
 
-  // World-space: center the world on screen
+   // World-space: center the world on screen
   ctx.save();
   ctx.translate(w / 2, h / 2);
 
-  // World draw (no grid)
+  // Optional debug grid
+  if (config.flags.grid) {
+    drawGrid(ctx, cam, w, h, 64);
+  }
+
+  // World draw
   drawPlayer(ctx, cam, player);
   beam.draw(ctx, cam, player);
 
   ctx.restore();
-
 
 
   // Screen-space overlays (stay after restore)

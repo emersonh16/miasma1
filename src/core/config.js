@@ -1,6 +1,8 @@
 export const config = {
   seed: 1337,
-  flags: { miasma: true, beam: true },
+  flags: { miasma: true, beam: true, grid: true },
+
+
 
   // World budgets
   maxChunkGenPerFrame: 1,
