@@ -58,12 +58,21 @@ export function raycast(origin, dir, params = {}) {
       const wy = origin.y + Math.sin(dir) * i * P.step;
       clearedFog += miasma.clearArea(wx, wy, P.radius, 999);
     }
-  } else if (mode === "cone") {
+} else if (mode === "cone") {
+    // Rounded‑tip cone hitbox:
+    // - radius ramps 0 → P.radius across the length
+    // - final pass stamps a full circle at the tip to round the far edge
     for (let i = 1; i <= P.steps; i++) {
+      const t = i / P.steps;                         // 0..1 along the cone
       const wx = origin.x + Math.cos(dir) * i * P.step;
       const wy = origin.y + Math.sin(dir) * i * P.step;
-      clearedFog += miasma.clearArea(wx, wy, P.radius, 999);
+      const rr = Math.max(1, P.radius * t);         // widen toward the tip
+      clearedFog += miasma.clearArea(wx, wy, rr, 999);
     }
+    // ensure rounded far edge cap
+    const tipX = origin.x + Math.cos(dir) * (P.steps * P.step);
+    const tipY = origin.y + Math.sin(dir) * (P.steps * P.step);
+    clearedFog += miasma.clearArea(tipX, tipY, P.radius, 999);
   } else if (mode === "bubble") {
     clearedFog += miasma.clearArea(origin.x, origin.y, P.radius, 999);
   }
