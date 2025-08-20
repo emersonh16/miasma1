@@ -16,7 +16,8 @@ export const config = {
 
     // regrow tuning
     regrowChance: 0.2,       // probability a candidate cell regrows this tick
-    regrowPad: 6,            // tiles beyond viewport to consider for regrow
+    regrowPad: 6,           // draw pad (punch/paint area)
+    regrowScanPad: 24,      // OFFSCREEN regrow scan pad (bigger than regrowPad)
     regrowBudget: 800,       // max cells that can regrow per frame
     regrowDelay: 1.0,        // seconds after clear before regrow eligible
     regrowSpeedFactor: 0.3,  // <1 slows overall spread rate

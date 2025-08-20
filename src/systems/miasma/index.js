@@ -109,45 +109,49 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
     S.oy = cy - Math.floor(S.rows / 2);
   }
 
-  // Adjacency-based regrow (viewport + PAD), budget-limited & random
+  // Adjacency-based regrow over a WIDER OFFSCREEN area (budgeted + delayed)
   let budget = REGROW_BUDGET;
-  const viewCols = Math.ceil(viewW / TILE_SIZE);
-  const viewRows = Math.ceil(viewH / TILE_SIZE);
 
-  const left   = Math.floor((centerWX - viewW / 2) / TILE_SIZE) - PAD;
-  const top    = Math.floor((centerWY - viewH / 2) / TILE_SIZE) - PAD;
-  const right  = left + viewCols + PAD * 2;
-  const bottom = top  + viewRows + PAD * 2;
+  // Large scan window in world-tiles (viewport + regrowScanPad)
+  const scanPad   = (MC.regrowScanPad ?? (PAD * 4));
+  const viewCols  = Math.ceil(viewW / TILE_SIZE);
+  const viewRows  = Math.ceil(viewH / TILE_SIZE);
+
+  const scanLeft   = Math.floor((centerWX - viewW / 2) / TILE_SIZE) - scanPad;
+  const scanTop    = Math.floor((centerWY - viewH / 2) / TILE_SIZE) - scanPad;
+  const scanRight  = scanLeft + viewCols + scanPad * 2;
+  const scanBottom = scanTop  + viewRows + scanPad * 2;
+
+  const chance = (MC.regrowChance ?? 0.6) * (MC.regrowSpeedFactor ?? 1);
+  const delayS = (MC.regrowDelay ?? 1.0);
 
   const toGrow = [];
 
-  for (let ty = top; ty < bottom && budget > 0; ty++) {
-    for (let tx = left; tx < right && budget > 0; tx++) {
-      const k = key(tx, ty);
-   // only consider cleared tiles
-if (!clearedMap.has(k)) continue;
+  // Iterate only cleared tiles (much cheaper) and check if they lie inside the scan window
+  for (const [k, tCleared] of clearedMap) {
+    if (budget <= 0) break;
 
-// check delay
-const timeCleared = clearedMap.get(k);
-if ((S.time - timeCleared) < (MC.regrowDelay ?? 1.0)) continue;
+    const [tx, ty] = k.split(",").map(Number);
+    if (tx < scanLeft || tx >= scanRight || ty < scanTop || ty >= scanBottom) continue;
 
-// 4-neighbor check
-const nFog =
-  (!clearedMap.has(key(tx - 1, ty))) ||
-  (!clearedMap.has(key(tx + 1, ty))) ||
-  (!clearedMap.has(key(tx, ty - 1))) ||
-  (!clearedMap.has(key(tx, ty + 1)));
+    if ((S.time - tCleared) < delayS) continue;
 
-if (nFog && Math.random() < (MC.regrowChance ?? 0.6) * (MC.regrowSpeedFactor ?? 1)) {
-  toGrow.push(k);
-  budget--;
-}
+    // 4-neighbor fog presence in WORLD tile space
+    const nFog =
+      (!clearedMap.has(key(tx - 1, ty))) ||
+      (!clearedMap.has(key(tx + 1, ty))) ||
+      (!clearedMap.has(key(tx, ty - 1))) ||
+      (!clearedMap.has(key(tx, ty + 1)));
 
+    if (nFog && Math.random() < chance) {
+      toGrow.push(k);
+      budget--;
     }
   }
 
-  // apply regrow
-for (const k of toGrow) clearedMap.delete(k);
+  // Apply regrow
+  for (const k of toGrow) clearedMap.delete(k);
+
 }
 
 export function draw(ctx, cam, w, h) {
