@@ -8,24 +8,23 @@ import { clear, drawGrid } from "../render/draw.js";
 import * as chunks from "../world/chunks.js";
 import * as wind from "../systems/wind/index.js";
 import { drawDevHUD } from "../render/devhud.js";
+import { drawHUD } from "../render/hud.js";
 
 // --- Canvases ---
 // Base/world canvas (already in DOM)
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("game"));
 const ctx = canvas.getContext("2d");
 
-// Fog overlay (new, stacked above base)
+// Fog overlay (stacked above base)
 const fogCanvas = document.createElement("canvas");
 const fogCtx = fogCanvas.getContext("2d", { alpha: true });
 
 // Ensure both canvases share the SAME parent and CSS box
 const parent = canvas.parentElement || document.body;
 if (!parent.style.position) parent.style.position = "relative";
-Object.assign(canvas.style,    { position: "absolute", left: "0", top: "0", width: "100%", height: "100%", display: "block", zIndex: "0" });
-Object.assign(fogCanvas.style, { position: "absolute", left: "0", top: "0", width: "100%", height: "100%", display: "block", zIndex: "1", pointerEvents: "none" });
+Object.assign(canvas.style,   { position: "absolute", left: "0", top: "0", width: "100%", height: "100%", display: "block", zIndex: "0" });
+Object.assign(fogCanvas.style,{ position: "absolute", left: "0", top: "0", width: "100%", height: "100%", display: "block", zIndex: "1", pointerEvents: "none" });
 parent.appendChild(fogCanvas);
-
-
 
 // --- Input & actors ---
 initInput();
@@ -53,14 +52,12 @@ function resize() {
 
   const viewW = canvas.width / dpr;
   const viewH = canvas.height / dpr;
-  miasma.init(viewW, viewH, cam.x, cam.y);  // centers fog on camera:contentReference[oaicite:0]{index=0}
+  miasma.init(viewW, viewH, cam.x, cam.y);
 }
-
-
 addEventListener("resize", resize);
 resize();
 
-// --- Wind (debug: off) ---
+// --- Wind (debug default) ---
 wind.clearGears();
 wind.addGear({
   locked: true,
@@ -133,41 +130,35 @@ function frame(now) {
 
   miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
 
+  // Miasma survival tick — drain only when standing in fog (1 = fog)
+  if (config.flags.miasma && miasma.sample(player.x, player.y) === 1) {
+    player.health -= dt * 5; // 5 HP/sec in fog
+    if (player.health < 0) player.health = 0;
+  }
+
   // Aim beam at mouse (screen center = player)
   const aimX = mouseX / devicePixelRatio - w / 2;
   const aimY = mouseY / devicePixelRatio - h / 2;
   beam.setAngle(Math.atan2(aimY, aimX));
   beam.raycast(player, beam.getAngle());
 
-    // --- DRAW (two-layer pipeline) ---
+  // --- DRAW (two-layer pipeline) ---
 
   // Base/world layer
   ctx.clearRect(0, 0, w, h);
   clear(ctx, w, h, cam); // earth texture (world-anchored)
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  if (config.flags.grid) drawGrid(ctx, cam, w, h, 64);
+  beam.draw(ctx, cam, player);
+  drawPlayer(ctx, cam, player);
+  ctx.restore();
 
-// BASE LAYER
-ctx.clearRect(0, 0, w, h);
-clear(ctx, w, h, cam);                 // ground (world-anchored):contentReference[oaicite:2]{index=2}
-ctx.save();
-ctx.translate(w / 2, h / 2);
-if (config.flags.grid) drawGrid(ctx, cam, w, h, 64);
-beam.draw(ctx, cam, player);
-drawPlayer(ctx, cam, player);
-ctx.restore();
-
-// FOG OVERLAY
-fogCtx.clearRect(0, 0, w, h);
-miasma.draw(fogCtx, cam, w, h);        // handles its own cam translate:contentReference[oaicite:3]{index=3}
-drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
-
-
-  // Fog overlay layer
+  // Fog overlay (top-most: fog, dev HUD, player HUD)
   fogCtx.clearRect(0, 0, w, h);
-  // miasma.draw does its own cam translation + destination-out hole punching
-  miasma.draw(fogCtx, cam, w, h);            // paints purple fog + holes  
+  miasma.draw(fogCtx, cam, w, h); // paints purple fog + holes
   drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
-
-
+  drawHUD(fogCtx, player, w, h);
 
   requestAnimationFrame(frame);
 }

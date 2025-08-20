@@ -2,8 +2,9 @@ import { axis } from "../core/input.js";
 import { config } from "../core/config.js";
 
 export function makePlayer() {
-  return { x: 0, y: 0, r: 16 };
+  return { x: 0, y: 0, r: 16, health: 100, maxHealth: 100 };
 }
+
 
 export function updatePlayer(p, dt) {
   const a = axis();
@@ -12,16 +13,15 @@ export function updatePlayer(p, dt) {
 }
 
 export function drawPlayer(ctx, cam, p) {
-ctx.save();
-// player is always at camera center → this translate resolves to (0,0) with no rounding
-ctx.translate(-cam.x + p.x, -cam.y + p.y);
-ctx.beginPath();
-ctx.arc(0, 0, p.r, 0, Math.PI * 2);
-ctx.fillStyle = "#a83c0f";
-ctx.fill();
-ctx.lineWidth = 2;
-ctx.strokeStyle = "#3b2618";
-ctx.stroke();
-ctx.restore();
-
+  ctx.save();
+  // player is always at camera center → this translate resolves to (0,0) with no rounding
+  ctx.translate(-cam.x + p.x, -cam.y + p.y);
+  ctx.beginPath();
+  ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+  ctx.fillStyle = "#a83c0f";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#3b2618";
+  ctx.stroke();
+  ctx.restore();
 }
