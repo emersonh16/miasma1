@@ -18,6 +18,7 @@ const REGROW_BUDGET = MC.regrowBudget ??
 const MAX_HOLES_PER_FRAME = MC.maxDrawTilesPerFrame ?? 4000; // tune as needed
 
 
+
 // ---- State ----
 const S = {
   cols: 0,
@@ -33,6 +34,14 @@ const S = {
   viewH: 0,
   time: 0,
 };
+
+
+// Shimmer config/state
+const NOISE_SIZE = 256; // bigger = chunkier shimmer
+S.noiseOffX = 0;  // px
+S.noiseOffY = 0;  // px
+S.vxSh = 0;       // px/sec (smoothed)
+S.vySh = 0;       // px/sec (smoothed)
 
 
 // Cleared fog tiles (relative to current origin): map from key -> timeCleared
@@ -133,10 +142,14 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
       S.accTilesX -= shiftX;
       S.accTilesY -= shiftY;
 
-      S.ox += shiftX;
-      S.oy += shiftY;
+    S.ox += shiftX;
+    S.oy += shiftY;
 
-      if (clearedMap.size) {
+    // Keep shimmer phase aligned to world when origin shifts whole tiles
+    S.noiseOffX += shiftX * TILE_SIZE;
+    S.noiseOffY += shiftY * TILE_SIZE;
+
+    if (clearedMap.size) {
         const shifted = new Map();
         for (const [k, v] of clearedMap) {
           const [lx, ly] = k.split(",").map(Number);
@@ -228,62 +241,52 @@ export function draw(ctx, cam, w, h) {
   ctx.fillStyle = FOG_COLOR;
   ctx.fillRect(pxLeft, pxTop, pxWidth, pxHeight);
 
-  // 1.5) Wind‑driven shimmer overlay (very low cost)
-  // --- build noise once ---
-  const NOISE_SIZE = 128;
-  if (!S._noise) {
-    const off = document.createElement("canvas");
-    off.width = off.height = NOISE_SIZE;
-    const o = off.getContext("2d");
+// 1.5) Wind‑driven shimmer overlay (very low cost)
+// --- build noise once ---
+if (!S._noise) {
+  const off = document.createElement("canvas");
+  off.width = off.height = NOISE_SIZE;
+  const o = off.getContext("2d");
 
-    function mulberry32(a){
-      return function(){
-        a|=0; a=(a+0x6D2B79F5)|0;
-        let t=Math.imul(a^(a>>>15),1|a);
-        t=(t+Math.imul(t^(t>>>7),61|t))^t;
-        return ((t^(t>>>14))>>>0)/4294967296;
-      };
-    }
-    const rnd = mulberry32((config.seed ?? 1337) ^ 0x51f1e);
-    // base
-    o.fillStyle = "#000";
-    o.fillRect(0,0,NOISE_SIZE,NOISE_SIZE);
-    // speckles
-    o.fillStyle = "#fff";
-    for (let i=0;i<NOISE_SIZE*NOISE_SIZE*0.06;i++){
-      o.fillRect((rnd()*NOISE_SIZE)|0,(rnd()*NOISE_SIZE)|0,1,1);
-    }
-    S._noise = off;
+  function mulberry32(a){
+    return function(){
+      a|=0; a=(a+0x6D2B79F5)|0;
+      let t=Math.imul(a^(a>>>15),1|a);
+      t=(t+Math.imul(t^(t>>>7),61|t))^t;
+      return ((t^(t>>>14))>>>0)/4294967296;
+    };
   }
+  const rnd = mulberry32((config.seed ?? 1337) ^ 0x51f1e);
+  // base
+  o.fillStyle = "#000";
+  o.fillRect(0,0,NOISE_SIZE,NOISE_SIZE);
+  // speckles
+  o.fillStyle = "#fff";
+  for (let i=0;i<NOISE_SIZE*NOISE_SIZE*0.06;i++){
+    o.fillRect((rnd()*NOISE_SIZE)|0,(rnd()*NOISE_SIZE)|0,1,1);
+  }
+  S._noise = off;
+}
 
-  // --- drift offset from wind (tiles/sec → px/sec) ---
-  const vel = wind.getVelocity({
-    centerWX: cam.x, centerWY: cam.y,
-    tileSize: TILE_SIZE, time: S.time
-  });
-  const SHIMMER_SPEED = (MC.shimmerSpeed ?? 0.35);  // scale of wind influence
-  const vx = vel.vxTilesPerSec * TILE_SIZE * SHIMMER_SPEED;
-  const vy = vel.vyTilesPerSec * TILE_SIZE * SHIMMER_SPEED;
+const pat = ctx.createPattern(S._noise, "repeat");
+const prevAlpha = ctx.globalAlpha;
+const prevOp = ctx.globalCompositeOperation;
 
-  const ox = ((S.time * vx) % NOISE_SIZE + NOISE_SIZE) % NOISE_SIZE;
-  const oy = ((S.time * vy) % NOISE_SIZE + NOISE_SIZE) % NOISE_SIZE;
+// Use continuous, world‑anchored offsets (integrated in update)
+const ox = ((S.noiseOffX % NOISE_SIZE) + NOISE_SIZE) % NOISE_SIZE;
+const oy = ((S.noiseOffY % NOISE_SIZE) + NOISE_SIZE) % NOISE_SIZE;
 
-  // --- blend noise over fog ---
-  const pat = ctx.createPattern(S._noise, "repeat");
-  const prevAlpha = ctx.globalAlpha;
-  const prevOp = ctx.globalCompositeOperation;
+ctx.save();
+ctx.translate(Math.floor(pxLeft + ox), Math.floor(pxTop + oy));
+ctx.globalAlpha = (MC.shimmerAlpha ?? 0.35); // bump for visibility while tuning
+ctx.globalCompositeOperation = "soft-light"; // fallback to 'multiply' if needed
+ctx.fillStyle = pat;
+ctx.fillRect(0, 0, pxWidth, pxHeight);
+ctx.restore();
 
-  ctx.save();
-  ctx.translate(Math.floor(pxLeft + ox), Math.floor(pxTop + oy));
-  ctx.globalAlpha = (MC.shimmerAlpha ?? 0.18);
-  // Soft, subtle tint; fallback to 'multiply' if 'soft-light' unsupported.
-  ctx.globalCompositeOperation = "soft-light";
-  ctx.fillStyle = pat;
-  ctx.fillRect(0, 0, pxWidth, pxHeight);
-  ctx.restore();
+ctx.globalAlpha = prevAlpha;
+ctx.globalCompositeOperation = prevOp;
 
-  ctx.globalAlpha = prevAlpha;
-  ctx.globalCompositeOperation = prevOp;
 
   // 2) Punch visible holes only, in one path (unchanged)
   ctx.globalCompositeOperation = "destination-out";
