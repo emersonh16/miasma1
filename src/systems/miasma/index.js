@@ -350,11 +350,18 @@ export function draw(ctx, cam, w, h) {
   if (!S.fogCanvas) return;
 
   ctx.save();
-  // Align world so the camera sits at the screen center.
-  // Sub-pixel wind remainder keeps continuous drift even before whole-tile scrolls.
-  const fracOffX = (S.windX || 0) * TILE_SIZE;
-  const fracOffY = (S.windY || 0) * TILE_SIZE;
-  ctx.translate(-cam.x + w / 2 - fracOffX, -cam.y + h / 2 - fracOffY);
+ // World-space center with BOTH remainders:
+// - wind remainder (S.windX/Y)
+// - camera remainder (S.camShiftX/Y) from smooth worldMotion
+const windOffX = (S.windX || 0) * TILE_SIZE;
+const windOffY = (S.windY || 0) * TILE_SIZE;
+const camOffX  = (S.camShiftX || 0) * TILE_SIZE;
+const camOffY  = (S.camShiftY || 0) * TILE_SIZE;
+
+ctx.translate(
+  -cam.x + w / 2 - windOffX - camOffX,
+  -cam.y + h / 2 - windOffY - camOffY
+);
 
   // Draw the entire ring at its world position; canvas clipping takes care of viewport.
   const px = S.ox * TILE_SIZE;
