@@ -33,28 +33,26 @@ export function raycast(origin, dir, params = {}) {
   let clearedFog = 0;
 
   if (mode === "laser") {
-    // bigger, longer line
-    const steps = 24;       // was 18
-    const stepSize = 3 * T; // was 2T
-    const radius = 6 * T;   // was 3T
+    const steps = 24;
+    const stepSize = 3 * T;
+    const radius = 6 * T;
     for (let i = 1; i <= steps; i++) {
       const wx = origin.x + Math.cos(dir) * i * stepSize;
       const wy = origin.y + Math.sin(dir) * i * stepSize;
       clearedFog += miasma.clearArea(wx, wy, radius, 999);
     }
   } else if (mode === "cone") {
-    // larger forward fan
-    const steps = 10;       // was 8
-    const stepSize = 3 * T; // was 2T
-    const radius = 10 * T;  // was 5T
+    // Sweep along a center ray; each sample clears a circle of `radius`.
+    const steps = 10;
+    const stepSize = 3 * T;
+    const radius = 10 * T;
     for (let i = 1; i <= steps; i++) {
       const wx = origin.x + Math.cos(dir) * i * stepSize;
       const wy = origin.y + Math.sin(dir) * i * stepSize;
       clearedFog += miasma.clearArea(wx, wy, radius, 999);
     }
   } else if (mode === "bubble") {
-    // much larger aura
-    const radius = 14 * T; // was 7T
+    const radius = 14 * T;
     clearedFog += miasma.clearArea(origin.x, origin.y, radius, 999);
   }
 
@@ -64,9 +62,25 @@ export function raycast(origin, dir, params = {}) {
 
 
 
+
 export function draw(ctx, cam, player) {
   const mode = MODES[state.modeIndex];
-  if (mode === "off") return; // no-beam: draw nothing
+  if (mode === "off") return;
+
+  const T = FOG_T();
+
+  // Must match raycast geometry
+  const LASER_STEPS = 24;
+  const LASER_STEP  = 3 * T;
+  const LASER_LEN   = LASER_STEPS * LASER_STEP; // same as raycast
+  const LASER_THICK = 0.5 * T;
+
+  const CONE_STEPS  = 10;
+  const CONE_STEP   = 3 * T;
+  const CONE_LEN    = CONE_STEPS * CONE_STEP;   // far edge of cone
+  const CONE_RADIUS = 10 * T;                   // far-half-width; matches clearArea radius
+
+  const BUBBLE_R    = 14 * T;                   // same as clearArea radius
 
   ctx.save();
   ctx.translate(-cam.x + player.x, -cam.y + player.y);
@@ -75,22 +89,22 @@ export function draw(ctx, cam, player) {
 
   if (mode === "bubble") {
     ctx.beginPath();
-    ctx.arc(0, 0, 180, 0, Math.PI * 2);
+    ctx.arc(0, 0, BUBBLE_R, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,240,160,0.25)";
     ctx.fill();
   } else if (mode === "laser") {
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(360, 0);
-    ctx.lineWidth = 4;
+    ctx.lineTo(LASER_LEN, 0);
+    ctx.lineWidth = LASER_THICK;
     ctx.strokeStyle = "rgba(255,240,160,0.9)";
     ctx.stroke();
   } else {
-    // cone
+    // Cone: triangle opening to width 2*CONE_RADIUS at distance CONE_LEN
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(280, -44);
-    ctx.lineTo(280, 44);
+    ctx.lineTo(CONE_LEN, -CONE_RADIUS);
+    ctx.lineTo(CONE_LEN,  CONE_RADIUS);
     ctx.closePath();
     ctx.fillStyle = "rgba(255,240,160,0.35)";
     ctx.fill();
