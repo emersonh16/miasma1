@@ -2,6 +2,14 @@ export const config = {
   seed: 1337,
   flags: { miasma: true, beam: true, grid: true },
 
+  // Beam tuning (all units in fog tiles; converted at runtime using miasma.tileSize)
+  beam: {
+    laser:  { steps: 24, stepTiles: 3, radiusTiles: 6, thicknessTiles: 0.5 },
+    cone:   { steps: 10, stepTiles: 3, radiusTiles: 10 },        // half‑width at far end
+    bubble: { radiusTiles: 14 }
+  },
+
+
 
 
   // World budgets

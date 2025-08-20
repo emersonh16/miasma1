@@ -1,86 +1,82 @@
 import * as miasma from "../miasma/index.js";
-const FOG_T = () => miasma.getTileSize(); // world units per fog tile
+import { config } from "../../core/config.js";
+
+// world units per fog tile
+const FOG_T = () => miasma.getTileSize();
 
 
-// Modes are ordered low→high: laser → cone → bubble → off (no-beam)
 const MODES = ["laser", "cone", "bubble", "off"];
-const state = {
-  modeIndex: 1,   // start at "cone"
-  angle: 0        // radians, world-relative aim
-};
+const state = { modeIndex: 1, angle: 0 }; // start at cone
 
 export function getMode() { return MODES[state.modeIndex]; }
-
 export function setMode(m) {
   const i = MODES.indexOf((m || "").toLowerCase());
   if (i !== -1) state.modeIndex = i;
 }
-
-export function modeUp(steps = 1) { // toward "off"
-  state.modeIndex = Math.min(MODES.length - 1, state.modeIndex + steps);
-}
-export function modeDown(steps = 1) { // toward "laser"
-  state.modeIndex = Math.max(0, state.modeIndex - steps);
-}
-
+export function modeUp(steps = 1)   { state.modeIndex = Math.min(MODES.length - 1, state.modeIndex + steps); }
+export function modeDown(steps = 1) { state.modeIndex = Math.max(0, state.modeIndex - steps); }
 export function setAngle(rad) { state.angle = rad || 0; }
+export function getAngle()   { return state.angle; }
 
+// ---- shared params so raycast == visuals ----
+function paramsFor(mode, T) {
+  const B = config.beam || {};
+  if (mode === "laser") {
+    const b = B.laser || {};
+    return {
+      steps: b.steps ?? 24,
+      step:  (b.stepTiles ?? 3) * T,
+      radius:(b.radiusTiles ?? 6) * T,
+      thickness: (b.thicknessTiles ?? 0.5) * T
+    };
+  }
+  if (mode === "cone") {
+    const b = B.cone || {};
+    return {
+      steps: b.steps ?? 10,
+      step:  (b.stepTiles ?? 3) * T,
+      radius:(b.radiusTiles ?? 10) * T,   // used as half‑width at far end
+    };
+  }
+  if (mode === "bubble") {
+    const b = B.bubble || {};
+    return { radius: (b.radiusTiles ?? 14) * T };
+  }
+  return {};
+}
 
-
+// ---- hit test & clearing ----
 export function raycast(origin, dir, params = {}) {
-  const { mode = MODES[state.modeIndex] } = params;
+  const mode = params.mode || MODES[state.modeIndex];
   const T = FOG_T();
+  const P = paramsFor(mode, T);
   let clearedFog = 0;
 
   if (mode === "laser") {
-    const steps = 24;
-    const stepSize = 3 * T;
-    const radius = 6 * T;
-    for (let i = 1; i <= steps; i++) {
-      const wx = origin.x + Math.cos(dir) * i * stepSize;
-      const wy = origin.y + Math.sin(dir) * i * stepSize;
-      clearedFog += miasma.clearArea(wx, wy, radius, 999);
+    for (let i = 1; i <= P.steps; i++) {
+      const wx = origin.x + Math.cos(dir) * i * P.step;
+      const wy = origin.y + Math.sin(dir) * i * P.step;
+      clearedFog += miasma.clearArea(wx, wy, P.radius, 999);
     }
   } else if (mode === "cone") {
-    // Sweep along a center ray; each sample clears a circle of `radius`.
-    const steps = 10;
-    const stepSize = 3 * T;
-    const radius = 10 * T;
-    for (let i = 1; i <= steps; i++) {
-      const wx = origin.x + Math.cos(dir) * i * stepSize;
-      const wy = origin.y + Math.sin(dir) * i * stepSize;
-      clearedFog += miasma.clearArea(wx, wy, radius, 999);
+    for (let i = 1; i <= P.steps; i++) {
+      const wx = origin.x + Math.cos(dir) * i * P.step;
+      const wy = origin.y + Math.sin(dir) * i * P.step;
+      clearedFog += miasma.clearArea(wx, wy, P.radius, 999);
     }
   } else if (mode === "bubble") {
-    const radius = 14 * T;
-    clearedFog += miasma.clearArea(origin.x, origin.y, radius, 999);
+    clearedFog += miasma.clearArea(origin.x, origin.y, P.radius, 999);
   }
-
   return { hits: [], clearedFog };
 }
 
-
-
-
-
+// ---- visuals derived from the same params ----
 export function draw(ctx, cam, player) {
   const mode = MODES[state.modeIndex];
   if (mode === "off") return;
 
   const T = FOG_T();
-
-  // Must match raycast geometry
-  const LASER_STEPS = 24;
-  const LASER_STEP  = 3 * T;
-  const LASER_LEN   = LASER_STEPS * LASER_STEP; // same as raycast
-  const LASER_THICK = 0.5 * T;
-
-  const CONE_STEPS  = 10;
-  const CONE_STEP   = 3 * T;
-  const CONE_LEN    = CONE_STEPS * CONE_STEP;   // far edge of cone
-  const CONE_RADIUS = 10 * T;                   // far-half-width; matches clearArea radius
-
-  const BUBBLE_R    = 14 * T;                   // same as clearArea radius
+  const P = paramsFor(mode, T);
 
   ctx.save();
   ctx.translate(-cam.x + player.x, -cam.y + player.y);
@@ -89,22 +85,24 @@ export function draw(ctx, cam, player) {
 
   if (mode === "bubble") {
     ctx.beginPath();
-    ctx.arc(0, 0, BUBBLE_R, 0, Math.PI * 2);
+    ctx.arc(0, 0, P.radius, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,240,160,0.25)";
     ctx.fill();
   } else if (mode === "laser") {
+    const len = P.steps * P.step;
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(LASER_LEN, 0);
-    ctx.lineWidth = LASER_THICK;
+    ctx.lineTo(len, 0);
+    ctx.lineWidth = Math.max(1, P.thickness);
     ctx.strokeStyle = "rgba(255,240,160,0.9)";
     ctx.stroke();
   } else {
-    // Cone: triangle opening to width 2*CONE_RADIUS at distance CONE_LEN
+    // cone triangle: width = 2*radius at far end, length = steps*step
+    const len = P.steps * P.step;
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(CONE_LEN, -CONE_RADIUS);
-    ctx.lineTo(CONE_LEN,  CONE_RADIUS);
+    ctx.lineTo(len, -P.radius);
+    ctx.lineTo(len,  P.radius);
     ctx.closePath();
     ctx.fillStyle = "rgba(255,240,160,0.35)";
     ctx.fill();
@@ -112,6 +110,3 @@ export function draw(ctx, cam, player) {
 
   ctx.restore();
 }
-
-export function getAngle() { return state.angle; }
-
