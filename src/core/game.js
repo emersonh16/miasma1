@@ -38,6 +38,8 @@ wind.addGear({
   speedTilesPerSec: 0,
   coverage: () => 0,
 });
+wind.setGear(0, { locked: true, dirDeg: 90, speedTilesPerSec: 1 });
+
 
 // --- Mouse state (screen coords) ---
 let mouseX = 0, mouseY = 0;
@@ -80,9 +82,29 @@ function frame(now) {
   const w = canvas.width / devicePixelRatio;
   const h = canvas.height / devicePixelRatio;
 
-  // Real world motion under camera (camera delta)
-  const worldMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
+  // Real world motion under camera (camera delta + wind drift)
+  const camMotion = { x: cam.x - prevCamX, y: cam.y - prevCamY };
+
+  const windVel = wind.getVelocity({
+    centerWX: cam.x,
+    centerWY: cam.y,
+    tileSize: miasma.getTileSize(),
+    time: now / 1000
+  });
+  // convert from tiles/sec → world units/sec
+  const tileSize = miasma.getTileSize();
+  const windMotion = {
+    x: windVel.vxTilesPerSec * tileSize * dt,
+    y: windVel.vyTilesPerSec * tileSize * dt
+  };
+
+  const worldMotion = {
+    x: camMotion.x + windMotion.x,
+    y: camMotion.y + windMotion.y
+  };
+
   miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
+
 
   // Aim beam at mouse (screen center = player)
   const aimX = mouseX / devicePixelRatio - w / 2;

@@ -142,13 +142,13 @@ export function draw(ctx, cam, player) {
     grad.addColorStop(1.0, "rgba(255,215,0,0.0)");
     ctx.fillStyle = grad;
 
-    ctx.beginPath();
-    ctx.moveTo(-baseHalf, 0);
-    ctx.lineTo(baseHalf, 0);
-    ctx.lineTo(len, -half);
-    ctx.lineTo(len,  half);
-    ctx.closePath();
-    ctx.fill();
+   ctx.beginPath();
+ctx.moveTo(0, 0);             // apex at player
+ctx.lineTo(len, -half);
+ctx.lineTo(len,  half);
+ctx.closePath();
+ctx.fill();
+
   }
 
   ctx.globalCompositeOperation = prevComp;

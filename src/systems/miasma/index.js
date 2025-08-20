@@ -109,6 +109,13 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x: 0, y: 0 }, vi
     S.oy = cy - Math.floor(S.rows / 2);
   }
 
+    // Apply world motion (camera delta + wind drift) to fog origin
+  if (_worldMotion) {
+    S.ox += Math.round(_worldMotion.x / TILE_SIZE);
+    S.oy += Math.round(_worldMotion.y / TILE_SIZE);
+  }
+
+
   // Adjacency-based regrow over a WIDER OFFSCREEN area (budgeted + delayed)
   let budget = REGROW_BUDGET;
 
