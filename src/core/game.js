@@ -39,7 +39,7 @@ wind.addGear({
   speedTilesPerSec: 0,
   coverage: () => 0,
 });
-wind.setGear(0, { locked: true, dirDeg: 45, speedTilesPerSec: 50 });
+wind.setGear(0, { locked: true, dirDeg: 45, speedTilesPerSec: 50, coverage: () => 1 });
 
 // --- Mouse state (screen coords) ---
 let mouseX = 0, mouseY = 0;
