@@ -99,8 +99,8 @@ function frame(now) {
   };
 
   const worldMotion = {
-    x: -camMotion.x + windMotion.x,
-    y: -camMotion.y + windMotion.y
+    x: camMotion.x + windMotion.x,
+    y: camMotion.y + windMotion.y
   };
 
   miasma.update(dt, cam.x, cam.y, worldMotion, w, h);
