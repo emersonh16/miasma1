@@ -248,21 +248,28 @@ export function sample(wx, wy) {
 export function clearArea(wx, wy, r, _amt = 64) {
   const [cx, cy] = worldToTile(wx, wy, TILE_SIZE);
   const tr = Math.ceil(r / TILE_SIZE);
+  const r2 = r * r;
   let cleared = 0;
   let budget = Math.min(_amt, MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256);
 
   for (let dy = -tr; dy <= tr && budget > 0; dy++) {
     for (let dx = -tr; dx <= tr && budget > 0; dx++) {
-      if (dx * dx + dy * dy > tr * tr) continue;
       const tx = cx + dx, ty = cy + dy;
       if (tx < S.ox || tx >= S.ox + S.width || ty < S.oy || ty >= S.oy + S.height) continue;
+
+      // distance from beam center (wx, wy) to the CENTER of this tile in WORLD units
+      const centerX = (tx + 0.5) * TILE_SIZE;
+      const centerY = (ty + 0.5) * TILE_SIZE;
+      const dxw = centerX - wx;
+      const dyw = centerY - wy;
+      if ((dxw * dxw + dyw * dyw) > r2) continue;
 
       const ix = mod(tx - S.ox, S.width);
       const iy = mod(ty - S.oy, S.height);
       const idx = iy * S.width + ix;
       if (S.density[idx] !== 0) {
-        S.density[idx] = 0;                // clear in ring
-        paintTileAtIxIy(ix, iy, 0);        // update offscreen
+        S.density[idx] = 0;
+        paintTileAtIxIy(ix, iy, 0);
         cleared++;
         budget--;
       }
@@ -270,6 +277,7 @@ export function clearArea(wx, wy, r, _amt = 64) {
   }
   return cleared;
 }
+
 
 export function update(dt, centerWX, centerWY, worldMotion = { x: 0, y: 0 }, viewW = innerWidth, viewH = innerHeight) {
   S.time += dt;
