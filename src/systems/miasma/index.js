@@ -1,7 +1,7 @@
 // src/systems/miasma/index.js
 // Simplified miasma: viewport-aligned grid with persistent cleared tiles.
 // - No ring buffer, no offscreen blitting.
-// - Density is implicit: a world tile is FOG (1) unless it's in clearedTiles (0).
+// - Density is implicit: a world tile is FOG (1) unless it's in clearedMap (0).
 // - Regrow only scans viewport + pad and spreads by adjacency w/ randomness.
 
 import { worldToTile } from "../../core/coords.js";
@@ -12,21 +12,26 @@ const MC = (config.miasma ?? {});
 const TILE_SIZE = MC.tileSize ?? 8;
 const FOG_COLOR = MC.color ?? "rgba(128,0,180,1.0)";   // fully opaque purple
 const PAD = MC.regrowPad ?? (MC.marginTiles ?? 6);
-const REGROW_CHANCE = MC.regrowChance ?? 0.6;
 const REGROW_BUDGET = MC.regrowBudget ??
   Math.floor((MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256) / 2);
 const MAX_HOLES_PER_FRAME = MC.maxDrawTilesPerFrame ?? 4000;
 
+// Perf hygiene
+const CLEARED_TTL_S   = MC.clearedTTL ?? 20;       // drop holes older than TTL (seconds)
+const MAX_CLEARED_CAP = MC.maxClearedTiles ?? 50000; // safety cap for marathon runs
+
 // ---- State ----
 const S = {
   cols: 0, rows: 0,
-  ox: 0, oy: 0,
-  accTilesX: 0, accTilesY: 0,
+  ox: 0, oy: 0,          // draw window origin (world-aligned)
   viewW: 0, viewH: 0,
   time: 0,
+  // Fog phase (in tiles) — where the fog field is relative to world due to wind
+  fxTiles: 0, fyTiles: 0
 };
 
-// Cleared fog tiles (relative to current origin): map from key -> timeCleared
+
+// Cleared fog tiles in ABSOLUTE tile coords: `${tx},${ty}` -> timeCleared
 const clearedMap = new Map();
 const key = (tx, ty) => `${tx},${ty}`;
 
@@ -48,13 +53,16 @@ export function init(viewW, viewH, centerWX = 0, centerWY = 0) {
 export function getTileSize() { return TILE_SIZE; }
 export function getOrigin()   { return { ox: S.ox, oy: S.oy }; }
 
+// 0 = clear, 1 = fog
 export function sample(wx, wy) {
   const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
-  const k = key(tx - S.ox, ty - S.oy);
-  return clearedMap.has(k) ? 0 : 1;
+  const ftx = Math.floor(tx - S.fxTiles);
+  const fty = Math.floor(ty - S.fyTiles);
+  return clearedMap.has(key(ftx, fty)) ? 0 : 1;
 }
 
-// Circle clear
+
+// Circle clear (absolute tile keys)
 export function clearArea(wx, wy, r, _amt = 64) {
   const [cx, cy] = worldToTile(wx, wy, TILE_SIZE);
   const tr = Math.ceil(r / TILE_SIZE);
@@ -72,7 +80,9 @@ export function clearArea(wx, wy, r, _amt = 64) {
       const centerY = (ty + 0.5) * TILE_SIZE;
       const dxw = centerX - wx, dyw = centerY - wy;
       if ((dxw * dxw + dyw * dyw) > r2) continue;
-      const k = key(tx - S.ox, ty - S.oy);
+           const ftx = Math.floor(tx - S.fxTiles);
+      const fty = Math.floor(ty - S.fyTiles);
+      const k = key(ftx, fty);
       if (!clearedMap.has(k)) {
         clearedMap.set(k, S.time);
         cleared++; budget--;
@@ -85,6 +95,14 @@ export function clearArea(wx, wy, r, _amt = 64) {
 export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, viewW = S.viewW, viewH = S.viewH) {
   S.time += dt;
 
+    // Advect fog by wind (world units → tiles)
+  if (_worldMotion) {
+    S.fxTiles += (_worldMotion.x || 0) / TILE_SIZE;
+    S.fyTiles += (_worldMotion.y || 0) / TILE_SIZE;
+  }
+
+
+  // Keep draw window centered on camera (no rekeying of clearedMap needed)
   if (viewW !== S.viewW || viewH !== S.viewH) {
     init(viewW, viewH, centerWX, centerWY);
   } else {
@@ -94,29 +112,7 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
     S.oy = cy - Math.floor(S.rows / 2);
   }
 
-  // World motion → shift origin
-  if (_worldMotion) {
-    S.accTilesX += _worldMotion.x / TILE_SIZE;
-    S.accTilesY += _worldMotion.y / TILE_SIZE;
-    const takeInt = (v) => (v >= 0 ? Math.floor(v) : Math.ceil(v));
-    const shiftX = takeInt(S.accTilesX), shiftY = takeInt(S.accTilesY);
-    if (shiftX || shiftY) {
-      S.accTilesX -= shiftX; S.accTilesY -= shiftY;
-      S.ox += shiftX; S.oy += shiftY;
-
-      if (clearedMap.size) {
-        const shifted = new Map();
-        for (const [k, v] of clearedMap) {
-          const [lx, ly] = k.split(",").map(Number);
-          shifted.set(key(lx - shiftX, ly - shiftY), v);
-        }
-        clearedMap.clear();
-        for (const [k, v] of shifted) clearedMap.set(k, v);
-      }
-    }
-  }
-
-  // Regrow
+  // --- Regrow within a padded scan window around the view ---
   let budget = REGROW_BUDGET;
   const scanPad   = (MC.regrowScanPad ?? (PAD * 4));
   const viewCols  = Math.ceil(viewW / TILE_SIZE);
@@ -129,20 +125,61 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
   const chance = (MC.regrowChance ?? 0.6) * (MC.regrowSpeedFactor ?? 1);
   const delayS = (MC.regrowDelay ?? 1.0);
   const toGrow = [];
+  const offX = Math.floor(S.fxTiles), offY = Math.floor(S.fyTiles); // integer fog offset
+
   for (const [k, tCleared] of clearedMap) {
     if (budget <= 0) break;
-    const [lx, ly] = k.split(",").map(Number);
-    const tx = lx + S.ox, ty = ly + S.oy;
+
+    // Fog‑space coords
+    const [fx, fy] = k.split(",").map(Number);
+
+    // Convert to world tiles for clipping
+    const tx = fx + offX;
+    const ty = fy + offY;
     if (tx < keepLeft || tx >= keepRight || ty < keepTop || ty >= keepBottom) continue;
+
     if ((S.time - tCleared) < delayS) continue;
+
+    // Neighbor fog in fog‑space
     const nFog =
-      (!clearedMap.has(key(tx - 1 - S.ox, ty - S.oy))) ||
-      (!clearedMap.has(key(tx + 1 - S.ox, ty - S.oy))) ||
-      (!clearedMap.has(key(tx - S.ox, ty - 1 - S.oy))) ||
-      (!clearedMap.has(key(tx - S.ox, ty + 1 - S.oy)));
+      (!clearedMap.has(key(fx - 1, fy    ))) ||
+      (!clearedMap.has(key(fx + 1, fy    ))) ||
+      (!clearedMap.has(key(fx,     fy - 1))) ||
+      (!clearedMap.has(key(fx,     fy + 1)));
+
     if (nFog && Math.random() < chance) { toGrow.push(k); budget--; }
   }
+
+
   for (const k of toGrow) clearedMap.delete(k);
+
+  // --- Aging & safety cap (keeps long runs stable) ---
+  if (clearedMap.size) {
+    const nowT = S.time;
+
+    // TTL: drop entries older than TTL seconds
+    if (CLEARED_TTL_S > 0) {
+      for (const [k, tCleared] of clearedMap) {
+        if (nowT - tCleared > CLEARED_TTL_S) clearedMap.delete(k);
+      }
+    }
+
+    // Hard cap: drop oldest if we explode beyond cap
+    if (clearedMap.size > MAX_CLEARED_CAP) {
+      const overflow = clearedMap.size - MAX_CLEARED_CAP;
+      let scanned = 0, removed = 0;
+      const candidates = [];
+      for (const [k, tCleared] of clearedMap) {
+        candidates.push([k, tCleared]);
+        if (++scanned >= Math.min(clearedMap.size, overflow * 2)) break;
+      }
+      candidates.sort((a, b) => a[1] - b[1]); // oldest first
+      for (let i = 0; i < candidates.length && removed < overflow; i++) {
+        clearedMap.delete(candidates[i][0]);
+        removed++;
+      }
+    }
+  }
 }
 
 export function draw(ctx, cam, w, h) {
@@ -165,18 +202,21 @@ export function draw(ctx, cam, w, h) {
   ctx.fillStyle = FOG_COLOR;
   ctx.fillRect(pxLeft, pxTop, pxWidth, pxHeight);
 
-  // 2) Punch visible holes
+  // 2) Punch visible holes (absolute tile coords)
   ctx.globalCompositeOperation = "destination-out";
-  let holes=0;
+  let holes = 0;
   ctx.beginPath();
+    const offX = Math.floor(S.fxTiles), offY = Math.floor(S.fyTiles);
   for (const k of clearedMap.keys()) {
-    const [lx, ly] = k.split(",").map(Number);
-    const tx = lx + S.ox, ty = ly + S.oy;
+    const [fx, fy] = k.split(",").map(Number);
+    const tx = fx + offX;
+    const ty = fy + offY;
     if (tx < left || tx >= right || ty < top || ty >= bottom) continue;
-    ctx.rect(tx*TILE_SIZE, ty*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    ctx.rect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
     if (++holes >= MAX_HOLES_PER_FRAME) break;
   }
-  if (holes>0) ctx.fill();
+
+  if (holes > 0) ctx.fill();
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
 }
