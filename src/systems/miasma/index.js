@@ -59,9 +59,15 @@ const S = {
 
 
 
-// Cleared fog tiles in ABSOLUTE tile coords: `${tx},${ty}` -> timeCleared
+// Cleared fog tiles in ABSOLUTE tile coords: numeric key -> timeCleared
+/** @type {Map<number, number>} */
 const clearedMap = new Map();
-const key = (tx, ty) => `${tx},${ty}`;
+
+// Pack two signed 16-bit tile coordinates into a single 32-bit integer key
+const KEY_SHIFT = 16;
+const KEY_MASK = 0xffff;
+const KEY_OFFSET = 0x8000; // offset to handle negatives
+const key = (tx, ty) => ((tx + KEY_OFFSET) << KEY_SHIFT) | ((ty + KEY_OFFSET) & KEY_MASK);
 
 // ---- API ----
 export function init(viewW, viewH, centerWX = 0, centerWY = 0) {
@@ -212,7 +218,8 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
     scanned++;
 
     // Fog-space coords
-    const [fx, fy] = k.split(",").map(Number);
+    const fx = (k >>> KEY_SHIFT) - KEY_OFFSET;
+    const fy = (k & KEY_MASK) - KEY_OFFSET;
 
     const tx = fx + offX;
     const ty = fy + offY;
@@ -303,7 +310,8 @@ export function draw(ctx, cam, w, h) {
 
   // Bucket visible tiles by row
   for (const k of clearedMap.keys()) {
-    const [fx, fy] = k.split(",").map(Number);
+    const fx = (k >>> KEY_SHIFT) - KEY_OFFSET;
+    const fy = (k & KEY_MASK) - KEY_OFFSET;
     const tx = fx + offX;
     const ty = fy + offY;
     if (tx < left || tx >= right || ty < top || ty >= bottom) continue;
