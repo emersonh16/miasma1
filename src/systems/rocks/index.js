@@ -189,6 +189,80 @@ ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
 }
 
 
+// Move entity by deltas while clamping against rock tiles
+export function movePlayer(ent, dx, dy, radiusOverride) {
+  if (!ent) return { x: 0, y: 0 };
+  const r = Number.isFinite(radiusOverride) ? radiusOverride : (ent.r ?? 16);
+
+  let x = ent.x;
+  let y = ent.y;
+
+  if (dx !== 0) {
+    const targetX = x + dx;
+    const minTx = Math.floor((targetX - r) / TILE_SIZE);
+    const maxTx = Math.floor((targetX + r) / TILE_SIZE);
+    const minTy = Math.floor((y - r) / TILE_SIZE);
+    const maxTy = Math.floor((y + r) / TILE_SIZE);
+    let limitX = targetX;
+
+    for (let ty = minTy; ty <= maxTy; ty++) {
+      for (let tx = minTx; tx <= maxTx; tx++) {
+        const k = tx + "," + ty;
+        if (!rockTiles.has(k)) continue;
+        const tileX = tx * TILE_SIZE;
+        const tileY = ty * TILE_SIZE;
+        const cx = clamp(targetX, tileX, tileX + TILE_SIZE);
+        const cy = clamp(y, tileY, tileY + TILE_SIZE);
+        const ddx = targetX - cx;
+        const ddy = y - cy;
+        if ((ddx * ddx + ddy * ddy) < r * r) {
+          if (dx > 0) {
+            limitX = Math.min(limitX, tileX - r);
+          } else {
+            limitX = Math.max(limitX, tileX + TILE_SIZE + r);
+          }
+        }
+      }
+    }
+    x = limitX;
+  }
+
+  if (dy !== 0) {
+    const targetY = y + dy;
+    const minTx = Math.floor((x - r) / TILE_SIZE);
+    const maxTx = Math.floor((x + r) / TILE_SIZE);
+    const minTy = Math.floor((targetY - r) / TILE_SIZE);
+    const maxTy = Math.floor((targetY + r) / TILE_SIZE);
+    let limitY = targetY;
+
+    for (let ty = minTy; ty <= maxTy; ty++) {
+      for (let tx = minTx; tx <= maxTx; tx++) {
+        const k = tx + "," + ty;
+        if (!rockTiles.has(k)) continue;
+        const tileX = tx * TILE_SIZE;
+        const tileY = ty * TILE_SIZE;
+        const cx = clamp(x, tileX, tileX + TILE_SIZE);
+        const cy = clamp(targetY, tileY, tileY + TILE_SIZE);
+        const ddx = x - cx;
+        const ddy = targetY - cy;
+        if ((ddx * ddx + ddy * ddy) < r * r) {
+          if (dy > 0) {
+            limitY = Math.min(limitY, tileY - r);
+          } else {
+            limitY = Math.max(limitY, tileY + TILE_SIZE + r);
+          }
+        }
+      }
+    }
+    y = limitY;
+  }
+
+  ent.x = x;
+  ent.y = y;
+  return { x, y };
+}
+
+
 // --- Collision: resolve a circle (player) against rock tiles ---
 export function collidePlayer(player, radiusOverride) {
   if (!player) return;
