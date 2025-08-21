@@ -44,47 +44,72 @@ function paramsFor(mode, T) {
   return {};
 }
 
-// ---- hit test & clearing ----
+// ---- Live‑tunable beam params (pixels, world space) ----
+const BeamParams = {
+  bubbleRadius: 64,        // px → 128px diameter
+  laserLength: 384,        // px
+  laserThickness: 8,       // px (visual + hitbox)
+  coneLength: 224,         // px
+  coneHalfAngleDeg: 64,    // deg (128° total)
+  budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
+};
+
+export function setParams(patch = {}) { Object.assign(BeamParams, patch); }
+export function getParams() { return { ...BeamParams }; }
+
+
+// ---- hit test & clearing (hitbox matches visuals) ----
 export function raycast(origin, dir, params = {}) {
   const mode = params.mode || MODES[state.modeIndex];
-  const T = FOG_T();
-  const P = paramsFor(mode, T);
+  const MAX_PER_STEP = BeamParams.budgetPerStamp;
   let clearedFog = 0;
 
   if (mode === "laser") {
-    for (let i = 1; i <= P.steps; i++) {
-      const wx = origin.x + Math.cos(dir) * i * P.step;
-      const wy = origin.y + Math.sin(dir) * i * P.step;
-      clearedFog += miasma.clearArea(wx, wy, P.radius, 999);
+    const STEPS = 24;
+    const step = BeamParams.laserLength / STEPS;
+    const r = Math.max(2, BeamParams.laserThickness * 0.5);
+    for (let i = 1; i <= STEPS; i++) {
+      const wx = origin.x + Math.cos(dir) * i * step;
+      const wy = origin.y + Math.sin(dir) * i * step;
+      clearedFog += miasma.clearArea(wx, wy, r, MAX_PER_STEP);
     }
-  } else if (mode === "cone") {
-    for (let i = 1; i <= P.steps; i++) {
-      const t = i / P.steps;
-      const wx = origin.x + Math.cos(dir) * i * P.step;
-      const wy = origin.y + Math.sin(dir) * i * P.step;
-      const rr = Math.max(1, P.radius * t);
-      clearedFog += miasma.clearArea(wx, wy, rr, 999);
-    }
-    const tipX = origin.x + Math.cos(dir) * (P.steps * P.step);
-    const tipY = origin.y + Math.sin(dir) * (P.steps * P.step);
-    clearedFog += miasma.clearArea(tipX, tipY, P.radius, 999);
-  } else if (mode === "bubble") {
-    clearedFog += miasma.clearArea(origin.x, origin.y, P.radius, 999);
+    return { hits: [], clearedFog };
   }
+
+  if (mode === "cone") {
+    const STEPS = 14;
+    const step = BeamParams.coneLength / STEPS;
+    const halfA = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
+    for (let i = 1; i <= STEPS; i++) {
+      const d = i * step;
+      const wx = origin.x + Math.cos(dir) * d;
+      const wy = origin.y + Math.sin(dir) * d;
+      const halfWidth = Math.tan(halfA) * d; // literal 128° wedge
+      const rr = Math.max(6, halfWidth);     // small floor to avoid gaps near apex
+      clearedFog += miasma.clearArea(wx, wy, rr, MAX_PER_STEP);
+    }
+    return { hits: [], clearedFog };
+  }
+
+  if (mode === "bubble") {
+    clearedFog += miasma.clearArea(
+      origin.x, origin.y, BeamParams.bubbleRadius, Math.max(900, MAX_PER_STEP)
+    );
+    return { hits: [], clearedFog };
+  }
+
   return { hits: [], clearedFog };
 }
+
+
+
 
 export function draw(ctx, cam, player) {
   const mode = MODES[state.modeIndex];
   if (mode === "off") return;
 
-  const T = FOG_T();
-  const P = paramsFor(mode, T);
-
-  // Base gold palette
-  const core = "rgba(255,240,0,1.0)";   // bright core
-  const mid  = "rgba(255,223,0,1.0)";   // mid mustard
-  const outer= "rgba(255,215,0,1.0)";   // outer mustard
+  // Unified light color (same hue; opacity varies by focus)
+  const LIGHT_RGB = "255,240,0";
 
   ctx.save();
   ctx.translate(-cam.x + player.x, -cam.y + player.y);
@@ -95,60 +120,86 @@ export function draw(ctx, cam, player) {
   ctx.globalCompositeOperation = "lighter";
 
   if (mode === "bubble") {
-    // Lantern-like glow bubble (no rim)
-    const r = P.radius;
+    // Visuals: bubbleRadius → diameter live from params
+    const r = BeamParams.bubbleRadius;
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-    g.addColorStop(0.0, core);
-    g.addColorStop(0.4, "rgba(255,223,0,0.35)");
-    g.addColorStop(1.0, "rgba(255,215,0,0.0)");
+
+    // same color, low opacity center fading to 0
+    g.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`);
+    g.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
+
   } else if (mode === "laser") {
-    const len = P.steps * P.step;
+    // Visuals: use live params
+    const len = BeamParams.laserLength;
+    const thick = BeamParams.laserThickness;
 
-    // Solid opaque mustard-gold beam
-    ctx.strokeStyle = outer;
-    ctx.lineWidth = P.thickness * 6;
+
+    // Single hue; layered opacity for glow while staying “one color”
     ctx.lineCap = "round";
-    ctx.globalAlpha = 1.0;
+
+    // outer soft aura
+    ctx.strokeStyle = `rgba(${LIGHT_RGB},0.25)`;
+    ctx.lineWidth = thick * 2.25;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
 
-    ctx.strokeStyle = mid;
-    ctx.lineWidth = P.thickness * 3;
+    // mid body
+    ctx.strokeStyle = `rgba(${LIGHT_RGB},0.6)`;
+    ctx.lineWidth = thick * 1.25;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
 
-    ctx.strokeStyle = core;
-    ctx.lineWidth = P.thickness;
+    // core
+    ctx.strokeStyle = `rgba(${LIGHT_RGB},1.0)`;
+    ctx.lineWidth = thick;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
 
-    // Tip flare
-    const tipR = Math.max(P.thickness * 2, T * 0.75);
+    // tip bloom (same hue)
+    const tipR = Math.max(thick * 1.6, 6);
     const tip = ctx.createRadialGradient(len, 0, 0, len, 0, tipR * 2);
-    tip.addColorStop(0, "rgba(255,245,200,1.0)");
-    tip.addColorStop(1, "rgba(255,200,80,0.0)");
+    tip.addColorStop(0, `rgba(${LIGHT_RGB},0.9)`);
+    tip.addColorStop(1, `rgba(${LIGHT_RGB},0.0)`);
     ctx.fillStyle = tip;
     ctx.beginPath(); ctx.arc(len, 0, tipR * 2, 0, Math.PI * 2); ctx.fill();
+
   } else {
-    // CONE: translucent gradient wedge, base as wide as player
-    const len = P.steps * P.step;
-    const half = P.radius;
-    const baseHalf = 2 * T; // ~player body width; replace with player.width/2 if available
+    // CONE: literal 128° wedge (live angle/length)
+    const length = BeamParams.coneLength;
+    const halfAngle = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
 
-    const grad = ctx.createLinearGradient(0, 0, len, 0);
-    grad.addColorStop(0.0, "rgba(255,215,0,0.6)");
-    grad.addColorStop(0.6, "rgba(255,215,0,0.3)");
-    grad.addColorStop(1.0, "rgba(255,215,0,0.0)");
-    ctx.fillStyle = grad;
+    const farHalfWidth = Math.tan(halfAngle) * length; // ~459px
 
-   ctx.beginPath();
-ctx.moveTo(0, 0);             // apex at player
-ctx.lineTo(len, -half);
-ctx.lineTo(len,  half);
-ctx.closePath();
-ctx.fill();
+    // Fill wedge with one hue, opacity strongest along center, fading to edges
+    // Approach: base fill low alpha + central spine stroke higher alpha.
+    // Base wedge
+    ctx.fillStyle = `rgba(${LIGHT_RGB},0.35)`;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, -farHalfWidth);
+    ctx.lineTo(length,  farHalfWidth);
+    ctx.closePath();
+    ctx.fill();
 
+    // Add a gentle length fade (overlay gradient along +X)
+    const lg = ctx.createLinearGradient(0, 0, length, 0);
+    lg.addColorStop(0.0, `rgba(${LIGHT_RGB},0.25)`);
+    lg.addColorStop(0.7, `rgba(${LIGHT_RGB},0.18)`);
+    lg.addColorStop(1.0, `rgba(${LIGHT_RGB},0.0)`);
+    ctx.fillStyle = lg;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, -farHalfWidth);
+    ctx.lineTo(length,  farHalfWidth);
+    ctx.closePath();
+    ctx.fill();
+
+    // Central spine to imply focus (same hue, higher opacity)
+    ctx.strokeStyle = `rgba(${LIGHT_RGB},0.6)`;
+    ctx.lineWidth = 10; // px spine thickness near center
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(length, 0); ctx.stroke();
   }
 
   ctx.globalCompositeOperation = prevComp;
