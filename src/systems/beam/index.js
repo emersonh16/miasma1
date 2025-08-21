@@ -184,16 +184,21 @@ export function draw(ctx, cam, player) {
     ctx.beginPath(); ctx.arc(len, 0, tipR * 2, 0, Math.PI * 2); ctx.fill();
 
   } else {
-    // CONE: literal 128° wedge (live angle/length)
+    // CONE: simpler look to match bubble color/feel.
+    // - Single hue, soft opacity like bubble (no center line, no rim stroke).
+    // - Wedge filled with a gentle length fade.
+    // - Subtle rounded cap at the far edge via a soft radial gradient.
+
     const length = BeamParams.coneLength;
     const halfAngle = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
+    const farHalfWidth = Math.tan(halfAngle) * length;
 
-    const farHalfWidth = Math.tan(halfAngle) * length; // ~459px
+    // 1) Base wedge (same hue as bubble, similar opacity profile)
+    const base = ctx.createLinearGradient(0, 0, length, 0);
+    base.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`); // match bubble core opacity
+    base.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
+    ctx.fillStyle = base;
 
-    // Fill wedge with one hue, opacity strongest along center, fading to edges
-    // Approach: base fill low alpha + central spine stroke higher alpha.
-    // Base wedge
-    ctx.fillStyle = `rgba(${LIGHT_RGB},0.35)`;
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(length, -farHalfWidth);
@@ -201,25 +206,23 @@ export function draw(ctx, cam, player) {
     ctx.closePath();
     ctx.fill();
 
-    // Add a gentle length fade (overlay gradient along +X)
-    const lg = ctx.createLinearGradient(0, 0, length, 0);
-    lg.addColorStop(0.0, `rgba(${LIGHT_RGB},0.25)`);
-    lg.addColorStop(0.7, `rgba(${LIGHT_RGB},0.18)`);
-    lg.addColorStop(1.0, `rgba(${LIGHT_RGB},0.0)`);
-    ctx.fillStyle = lg;
+    // 2) Soft rounded lens at the flat edge (very simple, no stroke)
+    //    A radial gradient centered at the tip that gently rounds the edge.
+    //    Radius uses the wedge half-width; inner opacity ~bubble core, fading to 0.
+    const tipR = Math.max(8, farHalfWidth);
+    const tip = ctx.createRadialGradient(length, 0, tipR * 0.25, length, 0, tipR);
+    tip.addColorStop(0.00, `rgba(${LIGHT_RGB},0.28)`); // just under bubble core to blend
+    tip.addColorStop(1.00, `rgba(${LIGHT_RGB},0.00)`);
+    ctx.fillStyle = tip;
+
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(length, -farHalfWidth);
+    ctx.moveTo(length, -farHalfWidth);
     ctx.lineTo(length,  farHalfWidth);
+    ctx.arc(length, 0, tipR, Math.PI/2, -Math.PI/2, true); // draw the rounded cap
     ctx.closePath();
     ctx.fill();
-
-    // Central spine to imply focus (same hue, higher opacity)
-    ctx.strokeStyle = `rgba(${LIGHT_RGB},0.6)`;
-    ctx.lineWidth = 10; // px spine thickness near center
-    ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(length, 0); ctx.stroke();
   }
+
 
   ctx.globalCompositeOperation = prevComp;
   ctx.globalAlpha = prevAlpha;
