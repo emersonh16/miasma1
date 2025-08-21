@@ -40,6 +40,11 @@ const BeamParams = {
   budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
 };
 
+// perf stats (updated each raycast)
+const BeamStats = { stamps: 0, clearedTiles: 0 };
+export function getStats() { return { ...BeamStats }; }
+
+
 // --- shared helpers for hitboxes ---
 function clearBubble(origin, radius, budget) {
   return miasma.clearArea(origin.x, origin.y, radius, budget);
@@ -109,30 +114,34 @@ export function raycast(origin, dir, params = {}) {
   const T = miasma.getTileSize();
   const TILE_PAD = T * 0.15;
   let clearedFog = 0;
+  BeamStats.stamps = 0;
+  BeamStats.clearedTiles = 0;
 
-  // continuous family → morph by state.level
+
+  // continuous family → morph by state.level (with stats)
   if (state.family === "continuous") {
     const L = state.level;
-    const T = miasma.getTileSize();
-    const TILE_PAD = T * 0.15;
-    let clearedFog = 0;
 
     if (L <= 0.05) {
       return { hits: [], clearedFog };
     } else if (L <= 0.3) {
       const r = 16 + (BeamParams.bubbleRadius - 16) * (L / 0.3);
-      clearedFog += miasma.clearArea(origin.x, origin.y, r + TILE_PAD, BeamParams.budgetPerStamp);
+      {
+        const n = miasma.clearArea(origin.x, origin.y, r + TILE_PAD, BeamParams.budgetPerStamp);
+        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
+      }
       return { hits: [], clearedFog };
     } else if (L <= 0.7) {
       const t = (L - 0.3) / 0.4;
       const len = 128 + (BeamParams.coneLength - 128) * t;
       const halfA = ((64 - 48 * t) * Math.PI) / 180;
       const ux = Math.cos(dir), uy = Math.sin(dir);
-      for (let d = T*2; d <= len; d += T*2) {
+      for (let d = T * 2; d <= len; d += T * 2) {
         const cx = origin.x + ux * d;
         const cy = origin.y + uy * d;
         const r = Math.max(4, Math.tan(halfA) * d) + TILE_PAD;
-        clearedFog += miasma.clearArea(cx, cy, r, BeamParams.budgetPerStamp);
+        const n = miasma.clearArea(cx, cy, r, BeamParams.budgetPerStamp);
+        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
       }
       return { hits: [], clearedFog };
     } else {
@@ -141,14 +150,16 @@ export function raycast(origin, dir, params = {}) {
       const thick = 4 + (BeamParams.laserThickness - 4) * t;
       const ux = Math.cos(dir), uy = Math.sin(dir);
       const rCore = thick * 0.5 + TILE_PAD;
-      for (let d = T; d <= len; d += T*1.5) {
+      for (let d = T; d <= len; d += T * 1.5) {
         const wx = origin.x + ux * d;
         const wy = origin.y + uy * d;
-        clearedFog += miasma.clearArea(wx, wy, rCore, BeamParams.budgetPerStamp);
+        const n = miasma.clearArea(wx, wy, rCore, BeamParams.budgetPerStamp);
+        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
       }
       return { hits: [], clearedFog };
     }
   }
+
 
 
   if (mode === "laser") {
@@ -178,45 +189,66 @@ export function raycast(origin, dir, params = {}) {
     const broomStep = Math.max(T * 0.8, 3);
     const rBroom    = Math.max(2, T * 0.6);
 
+    // Core
     for (let d = strideCore; d <= len; d += strideCore) {
       const wx = origin.x + ux * d;
       const wy = origin.y + uy * d;
-      clearedFog += miasma.clearArea(wx, wy, rCore, Math.max(MAX_PER_STEP, 800));
+      const n = miasma.clearArea(wx, wy, rCore, Math.max(MAX_PER_STEP, 800));
+      clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
+    // Tip punch
     {
       const wx = origin.x + ux * len;
       const wy = origin.y + uy * len;
-      clearedFog += miasma.clearArea(wx, wy, rCore, Math.max(MAX_PER_STEP, 800));
+      const n = miasma.clearArea(wx, wy, rCore, Math.max(MAX_PER_STEP, 800));
+      clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
 
+    // Halos
     for (let d = strideHalo; d <= len; d += strideHalo) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
-      clearedFog += miasma.clearArea(cx + nx * (+offHalo1), cy + ny * (+offHalo1), rHalo, MAX_PER_STEP);
-      clearedFog += miasma.clearArea(cx + nx * (-offHalo1), cy + ny * (-offHalo1), rHalo, MAX_PER_STEP);
-      clearedFog += miasma.clearArea(cx + nx * (+offHalo2), cy + ny * (+offHalo2), rHalo, MAX_PER_STEP);
-      clearedFog += miasma.clearArea(cx + nx * (-offHalo2), cy + ny * (-offHalo2), rHalo, MAX_PER_STEP);
+      const pts = [
+        [cx + nx * (+offHalo1), cy + ny * (+offHalo1)],
+        [cx + nx * (-offHalo1), cy + ny * (-offHalo1)],
+        [cx + nx * (+offHalo2), cy + ny * (+offHalo2)],
+        [cx + nx * (-offHalo2), cy + ny * (-offHalo2)],
+      ];
+      for (const [px, py] of pts) {
+        const n = miasma.clearArea(px, py, rHalo, MAX_PER_STEP);
+        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
+      }
     }
 
+    // Sweeps
     for (let d = strideSweep; d <= len; d += strideSweep) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
-      clearedFog += miasma.clearArea(cx + nx * sweepOffA, cy + ny * sweepOffA, rSweep, MAX_PER_STEP);
-      clearedFog += miasma.clearArea(cx + nx * sweepOffB, cy + ny * sweepOffB, rSweep, MAX_PER_STEP);
+      const pts = [
+        [cx + nx * sweepOffA, cy + ny * sweepOffA],
+        [cx + nx * sweepOffB, cy + ny * sweepOffB],
+      ];
+      for (const [px, py] of pts) {
+        const n = miasma.clearArea(px, py, rSweep, MAX_PER_STEP);
+        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
+      }
     }
 
+    // Broom pass (fills gaps)
     for (let d = broomGap; d <= len; d += broomGap) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
       for (let off = -broomSpan; off <= broomSpan; off += broomStep) {
         const wx = cx + nx * off;
         const wy = cy + ny * off;
-        clearedFog += miasma.clearArea(wx, wy, rBroom, MAX_PER_STEP);
+        const n = miasma.clearArea(wx, wy, rBroom, MAX_PER_STEP);
+        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
       }
     }
 
     return { hits: [], clearedFog };
   }
+
 
   if (mode === "cone") {
     const len   = BeamParams.coneLength;
@@ -229,13 +261,23 @@ export function raycast(origin, dir, params = {}) {
       const cy = origin.y + uy * d;
       const r  = Math.max(3, Math.tan(halfA) * d) + TILE_PAD;
       const budget = d > len * 0.6 ? Math.max(MAX_PER_STEP, 1200) : MAX_PER_STEP;
-      clearedFog += miasma.clearArea(cx, cy, r, budget);
-    }
+        {
+        const n = miasma.clearArea(cx, cy, r, budget);
+        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
+      }
 
+    }
+    
     const tipX = origin.x + ux * len;
     const tipY = origin.y + uy * len;
+
     const rTip = Math.max(4, Math.tan(halfA) * len) + TILE_PAD;
-    clearedFog += miasma.clearArea(tipX, tipY, rTip, Math.max(MAX_PER_STEP, 2000));
+    {
+      const n = miasma.clearArea(tipX, tipY, rTip, Math.max(MAX_PER_STEP, 2000));
+      clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
+    }
+
+
 
     return { hits: [], clearedFog };
   }
@@ -245,7 +287,11 @@ export function raycast(origin, dir, params = {}) {
     const Tz = miasma.getTileSize();
     const cx = Math.floor(origin.x / Tz) * Tz + Tz * 0.5;
     const cy = Math.floor(origin.y / Tz) * Tz + Tz * 0.5;
-    clearedFog += miasma.clearArea(cx, cy, r, Math.max(900, MAX_PER_STEP));
+    {
+      const n = miasma.clearArea(cx, cy, r, Math.max(900, MAX_PER_STEP));
+      clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
+    }
+
     return { hits: [], clearedFog };
   }
 
