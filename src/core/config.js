@@ -44,6 +44,7 @@ export const config = {
     maxEdgeFillPerTick: 3000,
     maxTilesUpdatedPerTick: 12000,
     maxDrawTilesPerFrame: 20000
+
   },
 
   // Fallbacks still used by code if miasma.* not present
