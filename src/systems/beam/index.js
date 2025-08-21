@@ -156,28 +156,33 @@ export function raycast(origin, dir, params = {}) {
 
 
 
-  if (mode === "cone") {
-    // Simplified CONE → spotlight circle at the tip.
-    // Center = origin + dir * coneLength
-    // Radius = coneLength * tan(halfAngle)  (matches visual width at the tip)
-    // We clear a single big circle so there are zero seams.
-
+    if (mode === "cone") {
+    // Proper wedge from origin → tip + the existing tip circle.
+    // We stamp growing circles along the centerline so the hitbox exactly fills the cone.
     const len   = BeamParams.coneLength;
     const halfA = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
+    const ux = Math.cos(dir), uy = Math.sin(dir);
 
-    const ux = Math.cos(dir),  uy = Math.sin(dir);
+    // step along the beam; radius grows linearly with distance
+    const step = Math.max(T * 0.9, 6);                 // coarse but seamless
+    for (let d = step; d <= len; d += step) {
+      const cx = origin.x + ux * d;
+      const cy = origin.y + uy * d;
+      const r  = Math.max(3, Math.tan(halfA) * d) + TILE_PAD;
+      // budget a bit higher near the tip where stamps are largest
+      const budget = d > len * 0.6 ? Math.max(MAX_PER_STEP, 1200) : MAX_PER_STEP;
+      clearedFog += miasma.clearArea(cx, cy, r, budget);
+    }
 
-    // tip center (no tile snap needed; circle will cover)
-    const cx = origin.x + ux * len;
-    const cy = origin.y + uy * len;
-
-    // radius at the far edge of the cone
+    // Keep the tip reinforcement so the attachment looks seamless
+    const tipX = origin.x + ux * len;
+    const tipY = origin.y + uy * len;
     const rTip = Math.max(4, Math.tan(halfA) * len) + TILE_PAD;
+    clearedFog += miasma.clearArea(tipX, tipY, rTip, Math.max(MAX_PER_STEP, 2000));
 
-    // one decisive clear
-    clearedFog += miasma.clearArea(cx, cy, rTip, Math.max(MAX_PER_STEP, 4000));
     return { hits: [], clearedFog };
   }
+
 
 
 
@@ -248,22 +253,34 @@ export function draw(ctx, cam, player) {
     ctx.fillStyle = tip;
     ctx.beginPath(); ctx.arc(len, 0, tipR * 2, 0, Math.PI * 2); ctx.fill();
 
-  } else {
-// Visual CONE simplified to a spotlight circle at the tip (same hue/opacity as bubble)
-const length = BeamParams.coneLength;
-const halfAngle = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
+   } else {
+    // Visual CONE: filled sector from origin + the existing tip glow
+    const length = BeamParams.coneLength;
+    const halfAngle = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
 
+    // sector body (origin-attached wedge)
+    const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, length);
+    bodyGrad.addColorStop(0.0, `rgba(${LIGHT_RGB},0.20)`);
+    bodyGrad.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
+    ctx.fillStyle = bodyGrad;
 
-    const r = Math.max(8, Math.tan(halfAngle) * length); // tip radius
-    const g = ctx.createRadialGradient(length, 0, 0, length, 0, r);
-    g.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`); // match bubble core feel
-    g.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
-
-    ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(length, 0, r, 0, Math.PI * 2);
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, length, -halfAngle, +halfAngle, false);
+    ctx.closePath();
+    ctx.fill();
+
+    // tip circle (kept for the bright focus at the far edge)
+    const rTip = Math.max(8, Math.tan(halfAngle) * length);
+    const tip = ctx.createRadialGradient(length, 0, 0, length, 0, rTip);
+    tip.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`);
+    tip.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
+    ctx.fillStyle = tip;
+    ctx.beginPath();
+    ctx.arc(length, 0, rTip, 0, Math.PI * 2);
     ctx.fill();
   }
+
 
 
   ctx.globalCompositeOperation = prevComp;
