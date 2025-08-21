@@ -143,7 +143,8 @@ function updateBeamFromMouse(mx, which) {
     laserL: [geom.bLaserL, 96, 640, "laserLength",        (v) => `${Math.round(v)} px`],
     laserT: [geom.bLaserT, 2,  24,  "laserThickness",     (v) => `${v.toFixed(1)} px`],
     coneL:  [geom.bConeL,  128,512, "coneLength",         (v) => `${Math.round(v)} px`],
-    coneA:  [geom.bConeA,  20, 80,  "coneHalfAngleDeg",   (v) => `${Math.round(v*2)}°`],     // show total
+    // CHANGE: drive TOTAL cone angle 4°..64°, beam module converts to half-angle internally
+    coneA:  [geom.bConeA,   4,  64, "coneAngleTotalDeg",  (v) => `${Math.round(v)}°`],
   };
 
   const row = map[which];
@@ -151,7 +152,11 @@ function updateBeamFromMouse(mx, which) {
   const [rect, lo, hi, key] = row;
   const t = clamp01((mx - rect.x) / rect.w);
   const val = lo + t * (hi - lo);
-  setBeam({ [key]: val });
+  if (key === "coneAngleTotalDeg") {
+    setBeam({ coneAngleTotalDeg: val });
+  } else {
+    setBeam({ [key]: val });
+  }
 }
 
 
@@ -284,10 +289,14 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
     (BP.coneLength - 128) / (512 - 128),
     "Cone Len", `${Math.round(BP.coneLength)} px`
   );
+
+  // CHANGE: show TOTAL cone angle 4°..64° (internally stored as half-angle)
+  const totalA = Math.round((BP.coneAngleTotalDeg ?? (BP.coneHalfAngleDeg * 2)));
+  const tCone = (totalA - 4) / (64 - 4);
   drawSlider(
     ctx, geom.bConeA,
-    (BP.coneHalfAngleDeg - 20) / (80 - 20),
-    "Cone Angle", `${Math.round(BP.coneHalfAngleDeg * 2)}°`
+    Math.max(0, Math.min(1, tCone)),
+    "Cone Angle", `${totalA}°`
   );
 
   // --- Other debug lines (push below the last slider) ---
