@@ -23,33 +23,30 @@ export const config = {
   maxDrawCalls: 2000,
 
   miasma: {
-    // draw/tiling
     tileSize: 4,
     marginTiles: 8,
     color: "rgba(128,0,180,1)",
 
-    // visual pizzaz
-    shimmerAlpha: 0.45,   // shimmer intensity
-    shimmerSpeed: 0.50,   // scale of wind influence on shimmer
+    // regrow tuning (slower creep, same short pause)
+    regrowChance: 0.18,       // ↓ slower per-tile probability
+    regrowSpeedFactor: 0.5,   // ↓ global multiplier
+    regrowDelay: 0.6,         // keep short delay before start
 
-    // regrow tuning
-    regrowChance: 0.2,
     regrowPad: 6,
     regrowScanPad: 24,
-    regrowBudget: 800,
-    regrowDelay: 1.0,
-    regrowSpeedFactor: 0.3,
+    regrowBudget: 600,        // ↓ max holes healed per frame
 
-    // legacy/budget caps used by simple path as fallbacks
-    maxEdgeFillPerTick: 3000,
+    maxRegrowScanPerFrame: 6000,
+    offscreenRegrowPad: 48,
+    offscreenForgetPad: 96,
+
     maxTilesUpdatedPerTick: 12000,
     maxDrawTilesPerFrame: 20000,
 
-        // regrow scanning cap (entries visited per frame, not just regrown)
-    maxRegrowScanPerFrame: 4000,
-
-
+    clearedTTL: 0,
   },
+
+
 
   // Fallbacks still used by code if miasma.* not present
   maxEdgeFillPerTick: 128,

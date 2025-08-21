@@ -62,13 +62,13 @@ resize();
 
 // --- Wind (debug default) ---
 wind.clearGears();
-wind.addGear({
+const g = wind.addGear({
   locked: true,
-  dirDeg: 0,
-  speedTilesPerSec: 0,
-  coverage: () => 0,
+  dirDeg: 45,
+  speedTilesPerSec: 8,   // ↓ from 50; DevHUD can raise this
+  coverage: () => 1,
 });
-wind.setGear(0, { locked: true, dirDeg: 45, speedTilesPerSec: 50, coverage: () => 1 });
+
 
 // --- Mouse state (screen coords) ---
 let mouseX = 0, mouseY = 0;
