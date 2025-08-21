@@ -39,9 +39,27 @@ export function updateEnemy(e, dt, player) {
   e.vx = (dx / d) * e.speed;
   e.vy = (dy / d) * e.speed;
 
-  const { x, y } = rocks.movePlayer({ x: e.wx, y: e.wy, r: e.r }, e.vx * dt, e.vy * dt, e.r);
+  const { x, y } = rocks.movePlayer(
+    { x: e.wx, y: e.wy, r: e.r },
+    e.vx * dt,
+    e.vy * dt,
+    e.r
+  );
   e.wx = x;
   e.wy = y;
+
+  // Player contact damage
+  const pr = player.r ?? 0;
+  const er = e.r ?? 0;
+  const dist = Math.hypot(player.x - e.wx, player.y - e.wy);
+  if (dist < pr + er) {
+    // Apply simple contact damage (10 HP/sec default)
+    const dmg = (e.damage ?? 10) * dt;
+    if (player.health != null) {
+      player.health -= dmg;
+      if (player.health < 0) player.health = 0;
+    }
+  }
 }
 
 export function drawEnemy(ctx, cam, e) {
