@@ -23,6 +23,9 @@ const CARVE_STEPS     = 18;      // steps per carve walker
 // --- State: anchored rock tiles by key "tx,ty" ---
 const rockTiles = new Set();
 
+// Track generated chunks by key "cx,cy" to avoid duplicate work
+const generatedChunks = new Set();
+
 // Deterministic RNG (with session seed mixed in)
 function mulberry32(a) {
   return function() {
@@ -35,6 +38,9 @@ function mulberry32(a) {
 
 // --- Helpers ---
 function generateChunk(cx, cy, playerTx, playerTy) {
+  const chunkKey = cx + "," + cy;
+  if (generatedChunks.has(chunkKey)) return;
+
   // seeded per chunk so it’s deterministic for this session
   const seed = ((cx * 73856093) ^ (cy * 19349663) ^ config.seed) >>> 0;
   const rng  = mulberry32(seed);
@@ -70,6 +76,8 @@ function generateChunk(cx, cy, playerTx, playerTy) {
 
   // prune stringers & carve paths to keep it navigable
   pruneAndCarve(baseTx, baseTy, endTx, endTy, rng);
+
+  generatedChunks.add(chunkKey);
 
   // ---- walker implementation ----
   function walkAndPaint(startTx, startTy, steps, allowBranch) {
@@ -155,7 +163,30 @@ export function ensureRocksForView(playerX, playerY, radiusTiles=128) {
 
   for (let cy = minChunkY; cy <= maxChunkY; cy++) {
     for (let cx = minChunkX; cx <= maxChunkX; cx++) {
-      generateChunk(cx, cy, playerTx, playerTy);
+      const key = cx + "," + cy;
+      if (!generatedChunks.has(key)) {
+        generateChunk(cx, cy, playerTx, playerTy);
+      }
+    }
+  }
+
+  // Optional: evict far-away chunks to allow regeneration later
+  const PAD_CHUNKS = 1;
+  for (const key of generatedChunks) {
+    const [cx, cy] = key.split(",").map(Number);
+    if (
+      cx < minChunkX - PAD_CHUNKS || cx > maxChunkX + PAD_CHUNKS ||
+      cy < minChunkY - PAD_CHUNKS || cy > maxChunkY + PAD_CHUNKS
+    ) {
+      generatedChunks.delete(key);
+      // remove associated rock tiles
+      const startTx = cx * CHUNK_SIZE;
+      const startTy = cy * CHUNK_SIZE;
+      for (let ty = startTy; ty < startTy + CHUNK_SIZE; ty++) {
+        for (let tx = startTx; tx < startTx + CHUNK_SIZE; tx++) {
+          rockTiles.delete(tx + "," + ty);
+        }
+      }
     }
   }
 }
