@@ -1,70 +1,126 @@
-import { iterEntitiesInAABB, TILE_SIZE, CHUNK_SIZE, getChunk } from "../world/store.js";
-import { worldToTile, tileToChunk } from "../core/coords.js";
-import * as rocks from "../systems/rocks/index.js";
+import { iterEntitiesInAABB } from "../world/store.js";
 
-export function makeEnemy(x, y, kind = "slime") {
+// --- Enemy factory ---
+export function makeEnemy(wx, wy, kind = "slime") {
   return {
     type: "enemy",
     kind,
-    x,
-    y,
+    wx, wy,
     r: 12,
-    speed: 40,
-    vx: 0,
-    vy: 0,
-    health: 10,
-    maxHealth: 10,
+    hp: 3,
+    // simple brain + motion
+    vx: 0, vy: 0,
+    speed: 80,       // px/sec base speed
+    _t: 0            // internal timer for wobble
   };
 }
 
-function removeEnemy(e) {
-  const [tx, ty] = worldToTile(e.x, e.y, TILE_SIZE);
-  const [cx, cy] = tileToChunk(tx, ty, CHUNK_SIZE);
-  const chunk = getChunk(cx, cy);
-  if (!chunk || !chunk.entities) return;
-  const idx = chunk.entities.indexOf(e);
-  if (idx !== -1) chunk.entities.splice(idx, 1);
-}
-
+// --- Enemy update (chase player with a little wobble) ---
 export function updateEnemy(e, dt, player) {
-  if (e.health != null && e.health <= 0) {
-    removeEnemy(e);
-    return;
+  if (!e || e.type !== "enemy" || !player) return;
+
+  e._t += dt;
+
+  const dx = player.x - e.wx;
+  const dy = player.y - e.wy;
+  const dist = Math.hypot(dx, dy) || 1;
+
+  const AGGRO = 600;   // start chasing if within this many px
+  const STOP  = 10;    // don't jitter when basically on top
+
+  let ux = 0, uy = 0;
+  if (dist > STOP && dist < AGGRO) {
+    ux = dx / dist;
+    uy = dy / dist;
   }
 
-  // Chase the player
-  const dx = player.x - e.x;
-  const dy = player.y - e.y;
-  const d = Math.hypot(dx, dy) || 1;
-  e.vx = (dx / d) * e.speed;
-  e.vy = (dy / d) * e.speed;
+  // wobble so they feel alive (boogie woogie)
+  const wob = 0.6;
+  const wobX = Math.cos(e._t * 2.1) * wob;
+  const wobY = Math.sin(e._t * 1.7) * wob;
 
-  const { x, y } = rocks.movePlayer(
-    { x: e.x, y: e.y, r: e.r },
-    e.vx * dt,
-    e.vy * dt,
-    e.r
-  );
-  e.x = x;
-  e.y = y;
+  const s = e.speed;
+  e.vx = (ux + wobX) * s;
+  e.vy = (uy + wobY) * s;
 
-  // Player contact damage
-  const pr = player.r ?? 0;
-  const er = e.r ?? 0;
-  const dist = Math.hypot(player.x - e.x, player.y - e.y);
-  if (dist < pr + er) {
-    // Apply simple contact damage (10 HP/sec default)
-    const dmg = (e.damage ?? 10) * dt;
-    if (player.health != null) {
-      player.health -= dmg;
-      if (player.health < 0) player.health = 0;
+  e.wx += e.vx * dt;
+  e.wy += e.vy * dt;
+}
+
+function dot(ax, ay, bx, by) { return ax * bx + ay * by; }
+
+/** Rotate (vx,vy) by -angle into beam space: +X = forward, +Y = left */
+function toBeamSpace(vx, vy, angleRad) {
+  const c = Math.cos(angleRad), s = Math.sin(angleRad);
+  // rotate by -angle → [ c  s; -s  c ]
+  const bx =  c * vx + s * vy;
+  const by = -s * vx + c * vy;
+  return { bx, by };
+}
+
+function hitBubble(px, py, e, radius) {
+  const rr = radius + (e.r || 12);
+  const dx = e.wx - px, dy = e.wy - py;
+  return dx*dx + dy*dy <= rr*rr;
+}
+
+function hitCone(px, py, angleRad, e, len, halfAngleRad) {
+  // enemy → beam space
+  const { bx, by } = toBeamSpace(e.wx - px, e.wy - py, angleRad);
+  if (bx < 0 || bx > len) return false;
+
+  // cone half‑width at distance bx
+  const edgeY = Math.tan(halfAngleRad) * bx;
+
+  // inflate for enemy radius (so edges still feel like hits)
+  const pad = (e.r || 12);
+  return Math.abs(by) <= (edgeY + pad);
+}
+
+function hitLaser(px, py, angleRad, e, len, halfThickness) {
+  const { bx, by } = toBeamSpace(e.wx - px, e.wy - py, angleRad);
+  if (bx < 0 || bx > len) return false;
+  return Math.abs(by) <= (halfThickness + (e.r || 12));
+}
+
+
+
+export function applyBeamDamage(player, angleRad, mode, params, cam, w, h) {
+  const ax = cam.x - w / 2, ay = cam.y - h / 2;
+  const bx = cam.x + w / 2, by = cam.y + h / 2;
+
+  for (const e of iterEntitiesInAABB(ax, ay, bx, by)) {
+    if (e.type !== "enemy") continue;
+
+    let hit = false;
+    if (mode === "bubble") {
+      hit = hitBubble(player.x, player.y, e, params.bubbleRadius ?? 64);
+    } else if (mode === "cone") {
+      const half = (
+        (params.coneHalfAngleDeg != null)
+          ? params.coneHalfAngleDeg
+          : (params.coneAngleTotalDeg ?? 64) * 0.5
+      ) * Math.PI / 180;
+      hit = hitCone(player.x, player.y, angleRad, e, params.coneLength ?? 224, half);
+    } else if (mode === "laser") {
+      hit = hitLaser(player.x, player.y, angleRad, e, params.laserLength ?? 384, (params.laserThickness ?? 8) * 0.5);
+    }
+
+    if (!hit) continue;
+
+    e.hp = (e.hp ?? 3) - 1;
+    if (e.hp <= 0) {
+      e.type = "corpse";
+      console.log(`💥 SLAYED: ${e.kind} at (${e.wx.toFixed(0)}, ${e.wy.toFixed(0)})`);
     }
   }
 }
 
+
+// --- Drawing ---
 export function drawEnemy(ctx, cam, e) {
   ctx.save();
-  ctx.translate(e.x - cam.x, e.y - cam.y);
+  ctx.translate(e.wx - cam.x, e.wy - cam.y);
   ctx.beginPath();
   ctx.arc(0, 0, e.r ?? 12, 0, Math.PI * 2);
   ctx.fillStyle = "#800080"; // purple blob
