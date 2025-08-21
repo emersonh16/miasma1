@@ -116,7 +116,13 @@ addEventListener("keydown", (e) => {
     e.preventDefault();           // prevent page scroll
   }
   if (k === "r") restart();
+
+  // Toggle DevHUD on/off (no work when off)
+  if (k === "h") {
+    config.flags.devhud = !config.flags.devhud;
+  }
 });
+
 
 
 // --- Main loop ---
@@ -205,8 +211,13 @@ function frame(now) {
   if (config.flags.miasma) {
     miasma.draw(fogCtx, cam, w, h);
   }
-  drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
+  // DevHUD does nothing when off (no layout, no meters, no input work)
+  if (config.flags.devhud) {
+    drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
+  }
+  // Basic HUD always draws (includes tiny FPS label)
   drawHUD(fogCtx, player, w, h);
+
 
   // Pause/Death overlays
   if (state.paused || state.dead) {
