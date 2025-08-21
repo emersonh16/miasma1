@@ -10,7 +10,7 @@ import * as wind from "../systems/wind/index.js";
 import { drawDevHUD } from "../render/devhud.js";
 import { drawHUD } from "../render/hud.js";
 import * as rocks from "../systems/rocks/index.js";
-import { drawEnemies, updateEnemy, applyLaserDamage } from "../entities/enemy.js";
+import { drawEnemies, updateEnemy } from "../entities/enemy.js";
 import { iterEntitiesInAABB } from "../world/store.js";
 
 
@@ -201,20 +201,10 @@ function frame(now) {
   // Aim beam at mouse (screen center = player)
   const aimX = mouseX / devicePixelRatio - w / 2;
   const aimY = mouseY / devicePixelRatio - h / 2;
-  const angle = Math.atan2(aimY, aimX);
-  beam.setAngle(angle);
-
+  beam.setAngle(Math.atan2(aimY, aimX));
   if (!state.paused && !state.dead) {
-    // fire visual & clear fog
-    beam.raycast(player, angle);
-
-    // NEW: laser deals damage to enemies
-    if (beam.getMode && beam.getMode() === "laser") {
-      const params = (beam.getParams && beam.getParams()) || { laserLength: 384, laserThickness: 8 };
-      applyLaserDamage(player, angle, params, cam, w, h);
-    }
+    beam.raycast(player, beam.getAngle());
   }
-
 
   // --- DRAW (two-layer pipeline) ---
 
