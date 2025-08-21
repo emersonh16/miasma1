@@ -203,11 +203,17 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
   const toGrow = [];
   const offX = Math.floor(S.fxTiles), offY = Math.floor(S.fyTiles); // integer fog offset
 
-  for (const [k, tCleared] of clearedMap) {
-    if (budget <= 0) break;
+  // hard cap total entries visited per frame so we don't walk huge maps
+  const SCAN_CAP = MC.maxRegrowScanPerFrame ?? 4000;
+  let scanned = 0;
 
-    // Fog-space coords → world-space tile coords
+  for (const [k, tCleared] of clearedMap) {
+    if (budget <= 0 || scanned >= SCAN_CAP) break;
+    scanned++;
+
+    // Fog-space coords
     const [fx, fy] = k.split(",").map(Number);
+
     const tx = fx + offX;
     const ty = fy + offY;
 
@@ -288,22 +294,54 @@ export function draw(ctx, cam, w, h) {
   ctx.fillStyle = FOG_COLOR;
   ctx.fillRect(pxLeft, pxTop, pxWidth, pxHeight);
 
-  // 2) Punch visible holes (absolute tile coords)
+  // 2) Punch visible holes (absolute tile coords) — RLE rows
   ctx.globalCompositeOperation = "destination-out";
-  let holes = 0;
   ctx.beginPath();
-    const offX = Math.floor(S.fxTiles), offY = Math.floor(S.fyTiles);
+
+  const offX = Math.floor(S.fxTiles), offY = Math.floor(S.fyTiles);
+  const rows = new Map(); // ty -> number[] of tx
+
+  // Bucket visible tiles by row
   for (const k of clearedMap.keys()) {
     const [fx, fy] = k.split(",").map(Number);
     const tx = fx + offX;
     const ty = fy + offY;
     if (tx < left || tx >= right || ty < top || ty >= bottom) continue;
-    ctx.rect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-    if (++holes >= MAX_HOLES_PER_FRAME) break;
+    let xs = rows.get(ty);
+    if (!xs) { xs = []; rows.set(ty, xs); }
+    xs.push(tx);
   }
 
-  if (holes > 0) ctx.fill();
-  S.stats.drawHoles = holes;
+  // Build rects per row by merging contiguous runs
+  let tilesDrawn = 0;
+  for (const [ty, xs] of rows) {
+    xs.sort((a,b) => a - b);
+    let runStart = null, prev = null;
+    for (let i = 0; i < xs.length; i++) {
+      const x = xs[i];
+      if (runStart === null) { runStart = prev = x; continue; }
+      if (x === prev + 1) { prev = x; continue; }
+
+      // flush run
+      const runLen = prev - runStart + 1;
+      ctx.rect(runStart * TILE_SIZE, ty * TILE_SIZE, runLen * TILE_SIZE, TILE_SIZE);
+      tilesDrawn += runLen;
+      if (tilesDrawn >= MAX_HOLES_PER_FRAME) break;
+
+      runStart = prev = x;
+    }
+    if (tilesDrawn >= MAX_HOLES_PER_FRAME) break;
+    if (runStart !== null) {
+      const runLen = prev - runStart + 1;
+      ctx.rect(runStart * TILE_SIZE, ty * TILE_SIZE, runLen * TILE_SIZE, TILE_SIZE);
+      tilesDrawn += runLen;
+      if (tilesDrawn >= MAX_HOLES_PER_FRAME) break;
+    }
+  }
+  if (tilesDrawn > 0) ctx.fill();
+  S.stats.drawHoles = tilesDrawn;
+
+  // restore normal blending & transform for the rest of the frame
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
 }
