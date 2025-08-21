@@ -57,66 +57,81 @@ export function raycast(origin, dir, params = {}) {
   }
 
   if (mode === "cone") {
-    const len = BeamParams.coneLength;
+    // TILE-ACCURATE CLEAR to guarantee: "if you see gold, there is NO purple".
+    // We iterate tile-sized samples inside the exact flashlight shape (wedge + partial ellipse tip)
+    // and stamp a *single tile* at each sample. This aligns cleared tiles 1:1 with drawn pixels (at tile resolution).
+    const len   = BeamParams.coneLength;
     const halfA = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
+
+    const Tsize = T;                         // tile size in px
+    const stepD = Math.max(Tsize, 1);        // march along-beam in tile steps
+    const stepW = Math.max(Tsize, 1);        // sweep across-beam in tile steps
+    const tinyR = Math.max(0.51 * Tsize, 2); // small radius so exactly the touched tile clears
 
     const ux = Math.cos(dir),  uy = Math.sin(dir);   // beam axis
     const nx = -Math.sin(dir), ny = Math.cos(dir);   // beam normal
 
-    const STEP_D = Math.max(T * 0.75, 3);
-    const STEP_W = Math.max(T * 0.75, 3);
-    const R_DISC = Math.max(T * 0.75 + TILE_PAD, 4);
+    // Tip lens parameters (match draw)
+    const tipArcFrac = 0.65;
+    const tipRxFrac  = 0.55;
+    const farHalfW   = Math.tan(halfA) * len;
+    const ry         = Math.max(8, farHalfW);              // across-beam radius at tip
+    const rx         = Math.max(8, ry * tipRxFrac);        // along-beam radius at tip
+    const alpha      = tipArcFrac * (Math.PI / 2);
 
-    const MAX_STAMPS = Math.max(1000, Math.floor(BeamParams.budgetPerStamp * 8));
+    const MAX_STAMPS = Math.max(4000, BeamParams.budgetPerStamp * 16);
     let stamps = 0;
 
-    // interior fill
-    for (let d = 0; d <= len && stamps < MAX_STAMPS; d += STEP_D) {
+    // 1) WEDGE BODY: scan along the beam; at each depth d, sweep across full wedge width.
+    for (let d = 0; d <= len && stamps < MAX_STAMPS; d += stepD) {
+      const halfW = Math.tan(halfA) * d;
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
-      const halfW = Math.tan(halfA) * d;
 
-      for (let off = -halfW; off <= halfW && stamps < MAX_STAMPS; off += STEP_W) {
+      // across sweep
+      for (let off = -halfW; off <= halfW && stamps < MAX_STAMPS; off += stepW) {
         const wx = cx + nx * off;
         const wy = cy + ny * off;
-        clearedFog += miasma.clearArea(wx, wy, R_DISC, MAX_PER_STEP);
+        // Clear exactly the tile containing this sample (no gaps between gold and fog)
+        clearedFog += miasma.clearArea(wx, wy, tinyR, MAX_PER_STEP);
         stamps++;
-      }
-
-      // edges
-      if (halfW > 0 && stamps < MAX_STAMPS) {
-        clearedFog += miasma.clearArea(cx + nx * (-halfW), cy + ny * (-halfW), R_DISC, MAX_PER_STEP); stamps++;
-        clearedFog += miasma.clearArea(cx + nx * ( halfW), cy + ny * ( halfW), R_DISC, MAX_PER_STEP);  stamps++;
       }
     }
 
-    // tip partial ellipse
+    // 2) TIP LENS: fill the partial ellipse cap with tile-sized samples.
     {
-      const tipArcFrac = 0.65;
-      const tipRxFrac  = 0.55;
-      const ry = Math.max(8, Math.tan(halfA) * len);
-      const rx = Math.max(8, ry * tipRxFrac);
-      const alpha = tipArcFrac * (Math.PI / 2);
-
       const tipX = origin.x + ux * len;
       const tipY = origin.y + uy * len;
 
-      const discR = Math.max(6, TILE_PAD + Math.max(T * 0.5, Math.min(rx, ry) * 0.25));
-      const steps = 7;
-      for (let i = 0; i < steps && stamps < MAX_STAMPS; i++) {
-        const t = -alpha + (i * (2 * alpha) / (steps - 1));
-        const ex = rx * Math.cos(t);
-        const ey = ry * Math.sin(t);
-        const ax = tipX + ux * ex + nx * ey;
-        const ay = tipY + uy * ex + ny * ey;
-        clearedFog += miasma.clearArea(ax, ay, discR, MAX_PER_STEP);
-        stamps++;
+      // iterate a tile grid over the ellipse's local bounding box
+      const minEx = -rx, maxEx = rx;
+      const minEy = -ry, maxEy = ry;
+
+      // tile-aligned steps in ellipse space
+      const stepEx = stepW;
+      const stepEy = stepW;
+
+      for (let ey = minEy; ey <= maxEy && stamps < MAX_STAMPS; ey += stepEy) {
+        for (let ex = minEx; ex <= maxEx && stamps < MAX_STAMPS; ex += stepEx) {
+          // inside the ellipse?
+          if ((ex*ex)/(rx*rx) + (ey*ey)/(ry*ry) > 1) continue;
+          // within the partial arc (not full half-ellipse)
+          const ang = Math.atan2(ey, ex);
+          if (ang < -alpha || ang > +alpha) continue;
+
+          // world position for this ellipse sample
+          const wx = tipX + ux * ex + nx * ey;
+          const wy = tipY + uy * ex + ny * ey;
+
+          clearedFog += miasma.clearArea(wx, wy, tinyR, MAX_PER_STEP);
+          stamps++;
+        }
       }
-      if (stamps < MAX_STAMPS) clearedFog += miasma.clearArea(tipX, tipY, discR, MAX_PER_STEP);
     }
 
     return { hits: [], clearedFog };
   }
+
 
   if (mode === "bubble") {
     const r = BeamParams.bubbleRadius + TILE_PAD;
