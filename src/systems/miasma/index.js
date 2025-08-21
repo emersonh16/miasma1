@@ -61,7 +61,45 @@ const S = {
 
 // Cleared fog tiles in ABSOLUTE tile coords: `${tx},${ty}` -> timeCleared
 const clearedMap = new Map();
+const frontier = new Set();
 const key = (tx, ty) => `${tx},${ty}`;
+
+function isBoundary(fx, fy) {
+  return (
+    !clearedMap.has(key(fx - 1, fy)) ||
+    !clearedMap.has(key(fx + 1, fy)) ||
+    !clearedMap.has(key(fx, fy - 1)) ||
+    !clearedMap.has(key(fx, fy + 1))
+  );
+}
+
+function checkFrontier(fx, fy) {
+  const k = key(fx, fy);
+  if (!clearedMap.has(k)) {
+    frontier.delete(k);
+    return;
+  }
+  if (isBoundary(fx, fy)) frontier.add(k);
+  else frontier.delete(k);
+}
+
+function updateNeighbors(fx, fy) {
+  checkFrontier(fx - 1, fy);
+  checkFrontier(fx + 1, fy);
+  checkFrontier(fx, fy - 1);
+  checkFrontier(fx, fy + 1);
+}
+
+function removeClearedKey(k) {
+  if (!clearedMap.has(k)) {
+    frontier.delete(k);
+    return;
+  }
+  clearedMap.delete(k);
+  frontier.delete(k);
+  const [fx, fy] = k.split(",").map(Number);
+  updateNeighbors(fx, fy);
+}
 
 // ---- API ----
 export function init(viewW, viewH, centerWX = 0, centerWY = 0) {
@@ -131,10 +169,12 @@ export function clearArea(wx, wy, r, _amt = 64) {
            const ftx = Math.floor(tx - S.fxTiles);
       const fty = Math.floor(ty - S.fyTiles);
       const k = key(ftx, fty);
-        if (!clearedMap.has(k)) {
+      if (!clearedMap.has(k)) {
         clearedMap.set(k, S.time);
         cleared++; budget--;
         S.stats.clearCalls++; // PERF: count successful clears
+        checkFrontier(ftx, fty);
+        updateNeighbors(ftx, fty);
       }
     }
   }
@@ -201,25 +241,27 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
   const chance = (MC.regrowChance ?? 0.6) * (MC.regrowSpeedFactor ?? 1);
   const delayS = (MC.regrowDelay ?? 1.0);
   const toGrow = [];
+  const toForget = [];
   const offX = Math.floor(S.fxTiles), offY = Math.floor(S.fyTiles); // integer fog offset
 
   // hard cap total entries visited per frame so we don't walk huge maps
   const SCAN_CAP = MC.maxRegrowScanPerFrame ?? 4000;
   let scanned = 0;
 
-  for (const [k, tCleared] of clearedMap) {
+  for (const k of frontier) {
     if (budget <= 0 || scanned >= SCAN_CAP) break;
     scanned++;
 
-    // Fog-space coords
-    const [fx, fy] = k.split(",").map(Number);
+    const tCleared = clearedMap.get(k);
+    if (tCleared === undefined) { frontier.delete(k); continue; }
 
+    const [fx, fy] = k.split(",").map(Number);
     const tx = fx + offX;
     const ty = fy + offY;
 
     // Far outside? forget immediately so wind can't bring it back
     if (tx < forgetLeft || tx >= forgetRight || ty < forgetTop || ty >= forgetBottom) {
-      clearedMap.delete(k);
+      toForget.push(k);
       S.stats.forgotOffscreen++;
       continue;
     }
@@ -227,21 +269,15 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
     // Outside extended regrow band? skip (neither grow nor delete)
     if (tx < regLeft || tx >= regRight || ty < regTop || ty >= regBottom) continue;
 
+    if (!isBoundary(fx, fy)) { frontier.delete(k); continue; }
 
     if ((S.time - tCleared) < delayS) continue;
 
-    // Neighbor fog in fog‑space
-    const nFog =
-      (!clearedMap.has(key(fx - 1, fy    ))) ||
-      (!clearedMap.has(key(fx + 1, fy    ))) ||
-      (!clearedMap.has(key(fx,     fy - 1))) ||
-      (!clearedMap.has(key(fx,     fy + 1)));
-
-    if (nFog && Math.random() < chance) { toGrow.push(k); budget--; }
+    if (Math.random() < chance) { toGrow.push(k); budget--; }
   }
 
-
-  for (const k of toGrow) clearedMap.delete(k);
+  for (const k of toForget) removeClearedKey(k);
+  for (const k of toGrow) removeClearedKey(k);
   S.stats.regrow = toGrow.length;
 
 
@@ -252,7 +288,7 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
     // TTL: drop entries older than TTL seconds
     if (CLEARED_TTL_S > 0) {
       for (const [k, tCleared] of clearedMap) {
-        if (nowT - tCleared > CLEARED_TTL_S) clearedMap.delete(k);
+        if (nowT - tCleared > CLEARED_TTL_S) removeClearedKey(k);
       }
     }
 
@@ -267,7 +303,7 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
       }
       candidates.sort((a, b) => a[1] - b[1]); // oldest first
       for (let i = 0; i < candidates.length && removed < overflow; i++) {
-        clearedMap.delete(candidates[i][0]);
+        removeClearedKey(candidates[i][0]);
         removed++;
       }
     }
