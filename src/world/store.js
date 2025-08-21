@@ -49,7 +49,9 @@ export function iterEntitiesInAABB(ax, ay, bx, by) {
         const chunk = getChunk(cx, cy);
         if (!chunk || !chunk.entities) continue;
         for (const e of chunk.entities) {
-          if (e.wx >= ax && e.wx < bx && e.wy >= ay && e.wy < by) yield e;
+          const ex = e.x ?? e.wx;
+          const ey = e.y ?? e.wy;
+          if (ex >= ax && ex < bx && ey >= ay && ey < by) yield e;
         }
       }
     }

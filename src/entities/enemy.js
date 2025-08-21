@@ -2,12 +2,12 @@ import { iterEntitiesInAABB, TILE_SIZE, CHUNK_SIZE, getChunk } from "../world/st
 import { worldToTile, tileToChunk } from "../core/coords.js";
 import * as rocks from "../systems/rocks/index.js";
 
-export function makeEnemy(wx, wy, kind = "slime") {
+export function makeEnemy(x, y, kind = "slime") {
   return {
     type: "enemy",
     kind,
-    wx,
-    wy,
+    x,
+    y,
     r: 12,
     speed: 40,
     vx: 0,
@@ -18,7 +18,7 @@ export function makeEnemy(wx, wy, kind = "slime") {
 }
 
 function removeEnemy(e) {
-  const [tx, ty] = worldToTile(e.wx, e.wy, TILE_SIZE);
+  const [tx, ty] = worldToTile(e.x, e.y, TILE_SIZE);
   const [cx, cy] = tileToChunk(tx, ty, CHUNK_SIZE);
   const chunk = getChunk(cx, cy);
   if (!chunk || !chunk.entities) return;
@@ -33,25 +33,25 @@ export function updateEnemy(e, dt, player) {
   }
 
   // Chase the player
-  const dx = player.x - e.wx;
-  const dy = player.y - e.wy;
+  const dx = player.x - e.x;
+  const dy = player.y - e.y;
   const d = Math.hypot(dx, dy) || 1;
   e.vx = (dx / d) * e.speed;
   e.vy = (dy / d) * e.speed;
 
   const { x, y } = rocks.movePlayer(
-    { x: e.wx, y: e.wy, r: e.r },
+    { x: e.x, y: e.y, r: e.r },
     e.vx * dt,
     e.vy * dt,
     e.r
   );
-  e.wx = x;
-  e.wy = y;
+  e.x = x;
+  e.y = y;
 
   // Player contact damage
   const pr = player.r ?? 0;
   const er = e.r ?? 0;
-  const dist = Math.hypot(player.x - e.wx, player.y - e.wy);
+  const dist = Math.hypot(player.x - e.x, player.y - e.y);
   if (dist < pr + er) {
     // Apply simple contact damage (10 HP/sec default)
     const dmg = (e.damage ?? 10) * dt;
@@ -64,7 +64,7 @@ export function updateEnemy(e, dt, player) {
 
 export function drawEnemy(ctx, cam, e) {
   ctx.save();
-  ctx.translate(e.wx - cam.x, e.wy - cam.y);
+  ctx.translate(e.x - cam.x, e.y - cam.y);
   ctx.beginPath();
   ctx.arc(0, 0, e.r ?? 12, 0, Math.PI * 2);
   ctx.fillStyle = "#800080"; // purple blob
