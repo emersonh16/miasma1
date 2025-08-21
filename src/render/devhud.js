@@ -21,6 +21,9 @@ const geom = {
   panel:  { x: 0, y: 0, w: PANEL_W, h: PANEL_H + 108 }, // extra space for beam sliders
   compass:{ cx: 0, cy: 0, r: COMPASS_R },
   slider: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
+    // miasma toggle
+  bMiasma: { x: 0, y: 0, w: 120, h: 18 },
+
 
   // beam sliders (stacked)
   bBubble: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
@@ -102,6 +105,13 @@ addEventListener("mousedown", (e) => {
     beam.toggleFamily();
     return;
   }
+
+    // Miasma toggle button
+  if (pointInRect(mx, my, geom.bMiasma)) {
+    config.flags.miasma = !config.flags.miasma;
+    return;
+  }
+
 
   // Beam sliders
   const tests = [
@@ -339,6 +349,29 @@ ctx.strokeStyle = "#fff";
 ctx.strokeRect(geom.bFamily.x + 0.5, geom.bFamily.y + 0.5, geom.bFamily.w - 1, geom.bFamily.h - 1);
 ctx.fillStyle = "#ffd700";
 ctx.fillText(`BeamMode: ${beam.getFamily()}`, geom.bFamily.x + 6, geom.bFamily.y + 4);
+
+
+// --- Miasma toggle button ---
+geom.bMiasma.x = geom.bFamily.x;   // same X as BeamMode
+geom.bMiasma.y = geom.bFamily.y + geom.bFamily.h + 10; // directly below BeamMode
+
+
+ctx.fillStyle = "rgba(50,50,50,0.6)";
+ctx.fillRect(geom.bMiasma.x, geom.bMiasma.y, geom.bMiasma.w, geom.bMiasma.h);
+ctx.strokeStyle = "#fff";
+ctx.strokeRect(
+  geom.bMiasma.x + 0.5,
+  geom.bMiasma.y + 0.5,
+  geom.bMiasma.w - 1,
+  geom.bMiasma.h - 1
+);
+ctx.fillStyle = "#ffd700";
+ctx.fillText(
+  `Miasma: ${config.flags.miasma ? "ON" : "OFF"}`,
+  geom.bMiasma.x + 6,
+  geom.bMiasma.y + 4
+);
+
 
 // --- Other debug lines (push below the toggle) ---
 let y = geom.bFamily.y + geom.bFamily.h + 20;

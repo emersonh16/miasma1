@@ -156,8 +156,12 @@ function frame(now) {
       y: windVel.vyTilesPerSec * tileSize * dt
     };
 
-    // Fog drift is driven ONLY by wind.
-    miasma.update(dt, cam.x, cam.y, windMotion, w, h);
+// Fog drift is driven ONLY by wind.
+if (config.flags.miasma) {
+  miasma.update(dt, cam.x, cam.y, windMotion, w, h);
+}
+
+
 
     // Ensure player health fields (defensive)
     if (player.maxHealth == null) player.maxHealth = 100;
@@ -195,11 +199,14 @@ function frame(now) {
   drawPlayer(ctx, cam, player);
   ctx.restore();
 
-  // Fog overlay (top-most: fog, dev HUD, player HUD, overlays)
-  fogCtx.clearRect(0, 0, w, h);
-  miasma.draw(fogCtx, cam, w, h); // paints purple fog + holes:contentReference[oaicite:4]{index=4}
-  drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
-  drawHUD(fogCtx, player, w, h);
+// Fog overlay (top-most: fog, dev HUD, player HUD, overlays)
+fogCtx.clearRect(0, 0, w, h);
+if (config.flags.miasma) {
+  miasma.draw(fogCtx, cam, w, h); // paints purple fog + holes
+}
+drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
+drawHUD(fogCtx, player, w, h);
+
 
   // Pause/Death overlays
   if (state.paused || state.dead) {
