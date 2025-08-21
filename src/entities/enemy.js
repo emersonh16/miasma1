@@ -1,11 +1,47 @@
-import { iterEntitiesInAABB } from "../world/store.js";
+import { iterEntitiesInAABB, TILE_SIZE, CHUNK_SIZE, getChunk } from "../world/store.js";
+import { worldToTile, tileToChunk } from "../core/coords.js";
+import * as rocks from "../systems/rocks/index.js";
 
 export function makeEnemy(wx, wy, kind = "slime") {
-  return { type: "enemy", kind, wx, wy, r: 12 };
+  return {
+    type: "enemy",
+    kind,
+    wx,
+    wy,
+    r: 12,
+    speed: 40,
+    vx: 0,
+    vy: 0,
+    health: 10,
+    maxHealth: 10,
+  };
 }
 
-export function updateEnemy(_e, _dt) {
-  // does nothing for now
+function removeEnemy(e) {
+  const [tx, ty] = worldToTile(e.wx, e.wy, TILE_SIZE);
+  const [cx, cy] = tileToChunk(tx, ty, CHUNK_SIZE);
+  const chunk = getChunk(cx, cy);
+  if (!chunk || !chunk.entities) return;
+  const idx = chunk.entities.indexOf(e);
+  if (idx !== -1) chunk.entities.splice(idx, 1);
+}
+
+export function updateEnemy(e, dt, player) {
+  if (e.health != null && e.health <= 0) {
+    removeEnemy(e);
+    return;
+  }
+
+  // Chase the player
+  const dx = player.x - e.wx;
+  const dy = player.y - e.wy;
+  const d = Math.hypot(dx, dy) || 1;
+  e.vx = (dx / d) * e.speed;
+  e.vy = (dy / d) * e.speed;
+
+  const { x, y } = rocks.movePlayer({ x: e.wx, y: e.wy, r: e.r }, e.vx * dt, e.vy * dt, e.r);
+  e.wx = x;
+  e.wy = y;
 }
 
 export function drawEnemy(ctx, cam, e) {

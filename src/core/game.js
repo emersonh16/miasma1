@@ -174,13 +174,13 @@ function frame(now) {
     rocks.ensureRocksForView(player.x, player.y);
 
     // Update enemies
-const ax = cam.x - w / 2;
-const ay = cam.y - h / 2;
-const bx = cam.x + w / 2;
-const by = cam.y + h / 2;
-for (const e of iterEntitiesInAABB(ax, ay, bx, by)) {
-  if (e.type === "enemy") updateEnemy(e, dt);
-}
+    const ax = cam.x - w / 2;
+    const ay = cam.y - h / 2;
+    const bx = cam.x + w / 2;
+    const by = cam.y + h / 2;
+    for (const e of iterEntitiesInAABB(ax, ay, bx, by)) {
+      if (e.type === "enemy") updateEnemy(e, dt, player);
+    }
 
 
 
