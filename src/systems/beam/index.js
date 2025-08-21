@@ -5,7 +5,8 @@ import { config } from "../../core/config.js";
 const FOG_T = () => miasma.getTileSize();
 
 const MODES = ["laser", "cone", "bubble", "off"];
-const state = { modeIndex: 1, angle: 0, family: "discrete" }; // family added
+const state = { modeIndex: 1, angle: 0, family: "discrete", level: 0 };
+
 
 export function getMode() { return MODES[state.modeIndex]; }
 export function setMode(m) {
@@ -29,6 +30,7 @@ const CONE_TOTAL_MAX = 64;
 const CONE_HALF_MIN  = CONE_TOTAL_MIN * 0.5;
 const CONE_HALF_MAX  = CONE_TOTAL_MAX * 0.5;
 
+
 const BeamParams = {
   bubbleRadius: 64,        // px → 128px diameter
   laserLength: 384,        // px
@@ -37,6 +39,13 @@ const BeamParams = {
   coneHalfAngleDeg: 32,    // deg (half-angle; default = 64° total)
   budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
 };
+
+
+export function adjustLevel(delta) {
+  state.level = Math.max(0, Math.min(1, state.level + delta));
+}
+export function getLevel() { return state.level; }
+
 
 function clampConeHalf(deg) {
   if (!Number.isFinite(deg)) return BeamParams.coneHalfAngleDeg;
@@ -71,12 +80,46 @@ export function raycast(origin, dir, params = {}) {
   const TILE_PAD = T * 0.15;
   let clearedFog = 0;
 
-  // continuous family → placeholder bubble
+  // continuous family → morph by state.level
   if (state.family === "continuous") {
-    const r = BeamParams.bubbleRadius + TILE_PAD;
-    clearedFog += miasma.clearArea(origin.x, origin.y, r, MAX_PER_STEP);
-    return { hits: [], clearedFog };
+    const L = state.level;
+    const T = miasma.getTileSize();
+    const TILE_PAD = T * 0.15;
+    let clearedFog = 0;
+
+    if (L <= 0.05) {
+      return { hits: [], clearedFog };
+    } else if (L <= 0.3) {
+      const r = 16 + (BeamParams.bubbleRadius - 16) * (L / 0.3);
+      clearedFog += miasma.clearArea(origin.x, origin.y, r + TILE_PAD, BeamParams.budgetPerStamp);
+      return { hits: [], clearedFog };
+    } else if (L <= 0.7) {
+      const t = (L - 0.3) / 0.4;
+      const len = 128 + (BeamParams.coneLength - 128) * t;
+      const halfA = ((64 - 48 * t) * Math.PI) / 180;
+      const ux = Math.cos(dir), uy = Math.sin(dir);
+      for (let d = T*2; d <= len; d += T*2) {
+        const cx = origin.x + ux * d;
+        const cy = origin.y + uy * d;
+        const r = Math.max(4, Math.tan(halfA) * d) + TILE_PAD;
+        clearedFog += miasma.clearArea(cx, cy, r, BeamParams.budgetPerStamp);
+      }
+      return { hits: [], clearedFog };
+    } else {
+      const t = (L - 0.7) / 0.3;
+      const len = 128 + (BeamParams.laserLength - 128) * t;
+      const thick = 4 + (BeamParams.laserThickness - 4) * t;
+      const ux = Math.cos(dir), uy = Math.sin(dir);
+      const rCore = thick * 0.5 + TILE_PAD;
+      for (let d = T; d <= len; d += T*1.5) {
+        const wx = origin.x + ux * d;
+        const wy = origin.y + uy * d;
+        clearedFog += miasma.clearArea(wx, wy, rCore, BeamParams.budgetPerStamp);
+      }
+      return { hits: [], clearedFog };
+    }
   }
+
 
   if (mode === "laser") {
     const len = BeamParams.laserLength;
@@ -193,21 +236,53 @@ export function draw(ctx, cam, player) {
 
   const LIGHT_RGB = "255,240,0";
 
-  // continuous family → placeholder bubble
+  // continuous family → morph by state.level
   if (state.family === "continuous") {
-    const r = BeamParams.bubbleRadius;
-    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-    g.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`);
-    g.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fill();
+    const L = state.level;
+
+    if (L <= 0.05) { ctx.restore(); return; }
+
+    if (L <= 0.3) {
+      const r = 16 + (BeamParams.bubbleRadius - 16) * (L / 0.3);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+      g.addColorStop(0, `rgba(${LIGHT_RGB},0.3)`);
+      g.addColorStop(1, `rgba(${LIGHT_RGB},0.0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
+    } else if (L <= 0.7) {
+      const t = (L - 0.3) / 0.4;
+      const len = 128 + (BeamParams.coneLength - 128) * t;
+      const halfA = ((64 - 48 * t) * Math.PI) / 180;
+      const grad = ctx.createRadialGradient(0,0,0,0,0,len);
+      grad.addColorStop(0, `rgba(${LIGHT_RGB},0.2)`);
+      grad.addColorStop(1, `rgba(${LIGHT_RGB},0.0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.arc(0,0,len,-halfA,halfA);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      const t = (L - 0.7) / 0.3;
+      const len = 128 + (BeamParams.laserLength - 128) * t;
+      const thick = 4 + (BeamParams.laserThickness - 4) * t;
+      ctx.lineCap = "round";
+
+      ctx.strokeStyle = `rgba(${LIGHT_RGB},0.25)`;
+      ctx.lineWidth = thick * 2;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(len,0); ctx.stroke();
+
+      ctx.strokeStyle = `rgba(${LIGHT_RGB},1.0)`;
+      ctx.lineWidth = thick;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(len,0); ctx.stroke();
+    }
+
     ctx.globalCompositeOperation = prevComp;
     ctx.globalAlpha = prevAlpha;
     ctx.restore();
     return;
   }
+
 
   if (mode === "bubble") {
     const r = BeamParams.bubbleRadius;
