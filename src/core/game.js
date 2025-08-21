@@ -10,7 +10,7 @@ import * as wind from "../systems/wind/index.js";
 import { drawDevHUD } from "../render/devhud.js";
 import { drawHUD } from "../render/hud.js";
 import * as rocks from "../systems/rocks/index.js";
-import { drawEnemies, updateEnemy, applyLaserDamage } from "../entities/enemy.js";
+import { drawEnemies, updateEnemy, applyBeamDamage } from "../entities/enemy.js";
 import { iterEntitiesInAABB } from "../world/store.js";
 
 
@@ -208,12 +208,9 @@ function frame(now) {
     // Clear fog + draw beam (visuals for all modes)
     beam.raycast(player, angle);
 
-    // Laser is the only damaging mode
     const mode = (typeof beam.getMode === "function") ? beam.getMode() : "laser";
-    if (mode === "laser") {
-      const params = (typeof beam.getParams === "function") ? beam.getParams() : {};
-      applyLaserDamage(player, angle, params, cam, w, h);
-    }
+    const params = (typeof beam.getParams === "function") ? beam.getParams() : {};
+    applyBeamDamage(player, angle, mode, params, cam, w, h);
   }
 
 
