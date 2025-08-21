@@ -2,11 +2,23 @@ import { worldToTile } from "../../core/coords.js";
 import { config } from "../../core/config.js";
 
 // --- Config knobs ---
-const TILE_SIZE      = 4;     // match miasma (4px tiles)
-const CLUSTER_CHANCE = 0.0001; // fewer clusters
-const CLUSTER_SIZE   = 220;    // slightly larger
-const GROW_CHANCE    = 0.9;    // unused by painter but kept for compatibility
-const CHUNK_SIZE     = 64;    // tiles per chunk
+// --- Config knobs ---
+const TILE_SIZE       = 4;       // match miasma (4px tiles)
+const CHUNK_SIZE      = 64;      // tiles per chunk
+
+// random-walk “crystal” growth (per-chunk)
+const SEEDS_PER_CHUNK = 2;       // walkers to start per chunk
+const STEPS_PER_SEED  = 140;     // steps per walker
+const BRANCH_PROB     = 0.06;    // chance to spawn a short branch
+const BRANCH_STEPS    = 60;      // steps for branch walker
+const SPAWN_SAFE_TILES= 10;      // keep clear around player spawn
+
+// cleanup / shaping
+const PRUNE_TIPS_PROB = 0.75;    // remove degree<=1 tiles with this prob
+const CARVE_DENSE     = true;    // carve paths if too dense
+const CARVE_WALKERS   = 2;       // num of carve walkers
+const CARVE_STEPS     = 18;      // steps per carve walker
+
 
 // --- State: anchored rock tiles by key "tx,ty" ---
 const rockTiles = new Set();
@@ -22,132 +34,113 @@ function mulberry32(a) {
 }
 
 // --- Helpers ---
-function generateCluster(seedTx, seedTy, rng) {
-  // Eden-style crystal growth:
-  // - start from a seed
-  // - grow in rounds from the current frontier
-  // - each round expands equally in all directions with a randomized acceptance
-  // - leave gaps and carve a couple of paths so it never fills everything
+function generateChunk(cx, cy, playerTx, playerTy) {
+  // seeded per chunk so it’s deterministic for this session
+  const seed = ((cx * 73856093) ^ (cy * 19349663) ^ config.seed) >>> 0;
+  const rng  = mulberry32(seed);
 
-  const rock = rockTiles; // alias
-  const keyOf = (x, y) => x + "," + y;
-
-  // helpers
-  const dirs8 = [
-    [ 1, 0], [-1, 0], [ 0, 1], [ 0,-1],
-    [ 1, 1], [-1, 1], [ 1,-1], [-1,-1]
-  ];
-  const neighbors8 = (x, y) => {
-    let n = 0;
-    for (const [dx,dy] of dirs8) if (rock.has(keyOf(x+dx,y+dy))) n++;
-    return n;
-  };
-
-  // parameters (tweak to taste)
-  const targetTiles    = CLUSTER_SIZE;     // total tiles in cluster
-  const acceptCardinal = 0.60;             // base accept prob for N/E/S/W
-  const acceptDiagonal = 0.60;             // same for diagonals → equal growth
-  const gapChance      = 0.12;             // chance to skip to create gaps
-  const softenTipsProb = 0.25;             // remove 1‑neighbor tips sometimes
-  const pathCarves     = 2;                // number of tiny path walkers
-  const pathSteps      = 20;               // steps per walker
-
-  // seed
-  let minX = seedTx, maxX = seedTx, minY = seedTy, maxY = seedTy;
-  const frontier = new Set([keyOf(seedTx, seedTy)]);
-  rock.add(keyOf(seedTx, seedTy));
-  let placed = 1;
-
-  // grow in rounds (frontier → nextFrontier), ensures radial shells
-  while (frontier.size && placed < targetTiles) {
-    const nextFrontier = new Set();
-
-    for (const k of frontier) {
-      const [cx, cy] = k.split(",").map(Number);
-
-      // shuffle dirs so no bias
-      for (let i = dirs8.length - 1; i > 0; i--) {
-        const j = Math.floor(rng() * (i + 1));
-        const tmp = dirs8[i]; dirs8[i] = dirs8[j]; dirs8[j] = tmp;
-      }
-
-      for (const [dx, dy] of dirs8) {
-        if (placed >= targetTiles) break;
-
-        const nx = cx + dx, ny = cy + dy;
-        const nk = keyOf(nx, ny);
-        if (rock.has(nk)) continue;
-
-        // equal acceptance in any direction, but allow gaps
-        const accept = (dx === 0 || dy === 0) ? acceptCardinal : acceptDiagonal;
-        if (rng() < gapChance) continue;
-        if (rng() < accept) {
-          rock.add(nk);
-          placed++;
-
-          if (nx < minX) minX = nx; if (nx > maxX) maxX = nx;
-          if (ny < minY) minY = ny; if (ny > maxY) maxY = ny;
-
-          // put this neighbor into the next round's frontier
-          nextFrontier.add(nk);
-        }
-      }
-    }
-
-    // move to next shell
-    if (nextFrontier.size === 0) break;
-    frontier.clear();
-    for (const nk of nextFrontier) frontier.add(nk);
-  }
-
-  // --- edge roughening: remove some isolated tips to avoid single‑tile strings
-  for (let y = minY - 1; y <= maxY + 1; y++) {
-    for (let x = minX - 1; x <= maxX + 1; x++) {
-      const k = keyOf(x, y);
-      if (!rock.has(k)) continue;
-      if (neighbors8(x, y) <= 1 && rng() < softenTipsProb) rock.delete(k);
-    }
-  }
-
-  // --- carve a couple of skinny paths through the interior so you can traverse
-  // tiny random walkers that erase along their way
-  for (let w = 0; w < pathCarves; w++) {
-    // pick a random interior rock cell to start
-    let sx = seedTx, sy = seedTy;
-    // nudge to somewhere in the bbox
-    sx = Math.floor(minX + rng() * (maxX - minX + 1));
-    sy = Math.floor(minY + rng() * (maxY - minY + 1));
-    for (let step = 0; step < pathSteps; step++) {
-      const k = keyOf(sx, sy);
-      if (rock.has(k)) rock.delete(k);
-      // random step
-      const [dx,dy] = dirs8[Math.floor(rng() * dirs8.length)];
-      sx += dx; sy += dy;
-    }
-  }
-}
-
-
-
-function generateChunk(cx, cy) {
   const baseTx = cx * CHUNK_SIZE;
   const baseTy = cy * CHUNK_SIZE;
+  const endTx  = baseTx + CHUNK_SIZE - 1;
+  const endTy  = baseTy + CHUNK_SIZE - 1;
 
-  for (let ty = baseTy; ty < baseTy + CHUNK_SIZE; ty++) {
-    for (let tx = baseTx; tx < baseTx + CHUNK_SIZE; tx++) {
-      const key = tx + "," + ty;
-      if (rockTiles.has(key)) continue;
+  const safeR2 = SPAWN_SAFE_TILES * SPAWN_SAFE_TILES;
 
-      // --- IMPORTANT: include config.seed for randomness ---
-      const seed = ((tx * 73856093) ^ (ty * 19349663) ^ config.seed);
-      const rng = mulberry32(seed);
+  // local helpers
+  const keyOf = (x,y) => x + "," + y;
+  const dirs4 = [[1,0],[-1,0],[0,1],[0,-1]];
+  const dirs8 = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+  const inSafe = (tx,ty) => {
+    const dx = tx - playerTx, dy = ty - playerTy;
+    return (dx*dx + dy*dy) <= safeR2;
+  };
 
-      if (rng() < CLUSTER_CHANCE) {
-        generateCluster(tx, ty, rng);
+  // walkers
+  for (let s = 0; s < SEEDS_PER_CHUNK; s++) {
+    // choose a start inside the chunk (retry away from spawn safe)
+    let sx = baseTx + Math.floor(rng() * CHUNK_SIZE);
+    let sy = baseTy + Math.floor(rng() * CHUNK_SIZE);
+    for (let r = 0; r < 8 && inSafe(sx,sy); r++) {
+      sx = baseTx + Math.floor(rng() * CHUNK_SIZE);
+      sy = baseTy + Math.floor(rng() * CHUNK_SIZE);
+    }
+
+    walkAndPaint(sx, sy, STEPS_PER_SEED, true);
+  }
+
+  // prune stringers & carve paths to keep it navigable
+  pruneAndCarve(baseTx, baseTy, endTx, endTy, rng);
+
+  // ---- walker implementation ----
+  function walkAndPaint(startTx, startTy, steps, allowBranch) {
+    let tx = startTx, ty = startTy;
+
+    for (let i = 0; i < steps; i++) {
+      if (!inSafe(tx,ty)) rockTiles.add(keyOf(tx,ty));
+
+      // move: cardinal step with tiny diagonal wobble to reduce straight veins
+      if (rng() < 0.85) {
+        const [dx,dy] = dirs4[(rng() * dirs4.length) | 0];
+        tx += dx; ty += dy;
+      } else {
+        const [dx,dy] = dirs8[(rng() * dirs8.length) | 0];
+        tx += dx; ty += dy;
+      }
+
+      // slight drift to make shapes lumpy (random bias every so often)
+      if ((i % 15) === 0) {
+        const [dx,dy] = dirs4[(rng() * dirs4.length) | 0];
+        if (rng() < 0.5) { tx += dx; } else { ty += dy; }
+      }
+
+      // clamp to a padded box (allow a bit of spill to reduce chunk seams)
+      if (tx < baseTx-2) tx = baseTx-2;
+      if (tx > endTx +2) tx = endTx +2;
+      if (ty < baseTy-2) ty = baseTy-2;
+      if (ty > endTy +2) ty = endTy +2;
+
+      // occasional short branch
+      if (allowBranch && rng() < BRANCH_PROB) {
+        const bdir = dirs4[(rng() * dirs4.length) | 0];
+        const bx = tx + bdir[0], by = ty + bdir[1];
+        walkAndPaint(bx, by, BRANCH_STEPS, false);
+      }
+    }
+  }
+
+  function pruneAndCarve(x0,y0,x1,y1,rng) {
+    // prune: remove degree<=1 to kill stringers
+    const neighborCount = (x,y) => {
+      let n = 0;
+      for (const [dx,dy] of dirs8) if (rockTiles.has(keyOf(x+dx,y+dy))) n++;
+      return n;
+    };
+
+    for (let y = y0-1; y <= y1+1; y++) {
+      for (let x = x0-1; x <= x1+1; x++) {
+        const k = keyOf(x,y);
+        if (!rockTiles.has(k)) continue;
+        if (neighborCount(x,y) <= 1 && rng() < PRUNE_TIPS_PROB) rockTiles.delete(k);
+      }
+    }
+
+    if (!CARVE_DENSE) return;
+
+    // carve: random walkers erase to ensure corridors
+    for (let w = 0; w < CARVE_WALKERS; w++) {
+      let sx = x0 + (rng() * (x1 - x0 + 1) | 0);
+      let sy = y0 + (rng() * (y1 - y0 + 1) | 0);
+      for (let i = 0; i < CARVE_STEPS; i++) {
+        rockTiles.delete(keyOf(sx,sy));
+        const [dx,dy] = dirs8[(rng() * dirs8.length) | 0];
+        sx += dx; sy += dy;
+        if (sx < x0) sx = x0; if (sx > x1) sx = x1;
+        if (sy < y0) sy = y0; if (sy > y1) sy = y1;
       }
     }
   }
 }
+
 
 
 // --- API ---
@@ -162,10 +155,11 @@ export function ensureRocksForView(playerX, playerY, radiusTiles=128) {
 
   for (let cy = minChunkY; cy <= maxChunkY; cy++) {
     for (let cx = minChunkX; cx <= maxChunkX; cx++) {
-      generateChunk(cx, cy);
+      generateChunk(cx, cy, playerTx, playerTy);
     }
   }
 }
+
 
 // 1 if rock at world coord, else 0
 export function sample(wx, wy) {
