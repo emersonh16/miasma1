@@ -7,6 +7,7 @@
 import { worldToTile } from "../../core/coords.js";
 import { config } from "../../core/config.js";
 
+
 // ---- Config knobs ----
 const MC = (config.miasma ?? {});
 const TILE_SIZE = MC.tileSize ?? 8;

@@ -1,11 +1,15 @@
 import { worldToTile } from "../../core/coords.js";
+import { config } from "../../core/config.js";
+
 
 // --- Config knobs ---
-const TILE_SIZE = 4;              // match miasma (4px tiles)
-const CLUSTER_CHANCE = 0.004;     // chance of seed per tile (tweak)
-const CLUSTER_SIZE = 30;          // max tiles per cluster
-const GROW_CHANCE = 0.5;          // chance to add each neighbor
-const CHUNK_SIZE = 64;            // world tiles per chunk
+const TILE_SIZE      = 4;     // match miasma (4px tiles)
+const CLUSTER_CHANCE = 0.001; // lower → fewer seeds
+const CLUSTER_SIZE   = 120;   // higher → bigger clusters
+const GROW_CHANCE    = 0.7;   // higher → denser blobs
+const CHUNK_SIZE     = 64;    // world tiles per chunk  
+
+
 
 // --- State: anchored rock tiles by key "tx,ty" ---
 const rockTiles = new Set();
@@ -28,6 +32,7 @@ function mulberry32(a) {
 function generateCluster(seedTx, seedTy, rng) {
   const frontier = [[seedTx, seedTy]];
   let count = 0;
+
   while (frontier.length && count < CLUSTER_SIZE) {
     const [tx, ty] = frontier.pop();
     const key = tx + "," + ty;
@@ -35,12 +40,35 @@ function generateCluster(seedTx, seedTy, rng) {
     rockTiles.add(key);
     count++;
 
-    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    // Possible growth directions
+    const dirs = [
+      [1,0], [-1,0], [0,1], [0,-1],   // cardinal
+      [1,1], [-1,1], [1,-1], [-1,-1]  // diagonals
+    ];
+
     for (const [dx,dy] of dirs) {
-      if (rng() < GROW_CHANCE) frontier.push([tx+dx, ty+dy]);
+      // Base growth chance
+      let chance = GROW_CHANCE;
+
+      // Diagonals grow less often
+      if (dx !== 0 && dy !== 0) chance *= 0.6;
+
+      // Random skips (leave gaps)
+      if (rng() < 0.15) continue;
+
+      if (rng() < chance) {
+        // Normal neighbor
+        frontier.push([tx+dx, ty+dy]);
+
+        // Rarely “burst” two tiles away
+        if (rng() < 0.1) {
+          frontier.push([tx+dx*2, ty+dy*2]);
+        }
+      }
     }
   }
 }
+
 
 function generateChunk(cx, cy) {
   const baseTx = cx * CHUNK_SIZE;
@@ -50,7 +78,8 @@ function generateChunk(cx, cy) {
       const key = tx + "," + ty;
       if (rockTiles.has(key)) continue;
 
-      const seed = (tx * 73856093) ^ (ty * 19349663);
+      // <-- include global session seed
+      const seed = ((tx * 73856093) ^ (ty * 19349663) ^ config.seed);
       const rng = mulberry32(seed);
 
       if (rng() < CLUSTER_CHANCE) {
