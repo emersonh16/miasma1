@@ -28,6 +28,9 @@ const geom = {
   bLaserT: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
   bConeL:  { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
   bConeA:  { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
+
+   // beam family toggle (NEW)
+  bFamily: { x: 0, y: 0, w: 120, h: 18 },
 };
 
 // interaction + UI-smoothing state
@@ -91,6 +94,12 @@ addEventListener("mousedown", (e) => {
   }
   if (pointInRect(mx, my, geom.slider)) {
     draggingSpeed = true; updateSpeedFromMouse(mx);
+    return;
+  }
+
+    // Beam family toggle button (NEW)
+  if (pointInRect(mx, my, geom.bFamily)) {
+    beam.toggleFamily();
     return;
   }
 
@@ -173,9 +182,21 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
 
   // Layout (top-right)
   const pad = 10;
-  geom.panel.x = w - PANEL_W - pad; geom.panel.y = pad;
-  geom.compass.cx = geom.panel.x + 60; geom.compass.cy = geom.panel.y + 60;
-  geom.slider.x = geom.panel.x + 30; geom.slider.y = geom.panel.y + 120;
+geom.panel.x = w - PANEL_W - pad; 
+geom.panel.y = pad;
+
+// place BeamMode toggle right below header
+geom.bFamily.x = geom.panel.x + 20;
+geom.bFamily.y = geom.panel.y + 40;
+
+// then push compass down a bit lower to make room
+geom.compass.cx = geom.panel.x + 60; 
+geom.compass.cy = geom.bFamily.y + 50;
+
+// slider row follows compass
+geom.slider.x = geom.panel.x + 30; 
+geom.slider.y = geom.compass.cy + 60;
+
 
   // Current wind (tiles/sec → speed/deg)
   const wv = wind.getVelocity({
@@ -205,7 +226,10 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
 
   // Panel
   ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.fillRect(geom.panel.x, geom.panel.y, geom.panel.w, geom.panel.h);
+ // compute panel height dynamically down to bottom diagnostics
+const panelBottom = h - 20; // 20px margin above bottom of screen
+const panelHeight = panelBottom - geom.panel.y;
+ctx.fillRect(geom.panel.x, geom.panel.y, geom.panel.w, panelHeight);
   ctx.strokeStyle = "rgba(255,255,255,0.2)";
   ctx.strokeRect(geom.panel.x + 0.5, geom.panel.y + 0.5, geom.panel.w - 1, geom.panel.h - 1);
 
@@ -213,6 +237,9 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
   ctx.fillStyle = "#fff";
   ctx.fillText(`FPS: ${fps}`, geom.panel.x + 8, geom.panel.y + 6);
   ctx.fillText(`Wind: ${dispSpeed.toFixed(1)} t/s @ ${Math.round(dispDeg)}° (downwind)`, geom.panel.x + 8, geom.panel.y + 22);
+
+
+
 
   // Compass
   ctx.save();
@@ -299,8 +326,23 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
     "Cone Angle", `${totalA}°`
   );
 
+
+
   // --- Other debug lines (push below the last slider) ---
-  let y = geom.bConeA.y + 28;
+  // --- BeamMode toggle button (just above diagnostics) ---
+geom.bFamily.x = geom.panel.x + 30;
+geom.bFamily.y = geom.bConeA.y + 60;  // leave extra space after sliders
+
+ctx.fillStyle = "rgba(50,50,50,0.6)";
+ctx.fillRect(geom.bFamily.x, geom.bFamily.y, geom.bFamily.w, geom.bFamily.h);
+ctx.strokeStyle = "#fff";
+ctx.strokeRect(geom.bFamily.x + 0.5, geom.bFamily.y + 0.5, geom.bFamily.w - 1, geom.bFamily.h - 1);
+ctx.fillStyle = "#ffd700";
+ctx.fillText(`BeamMode: ${beam.getFamily()}`, geom.bFamily.x + 6, geom.bFamily.y + 4);
+
+// --- Other debug lines (push below the toggle) ---
+let y = geom.bFamily.y + geom.bFamily.h + 20;
+
   const line = (txt) => { ctx.fillStyle = "#fff"; ctx.fillText(txt, geom.panel.x + 8, y); y += 14; };
   line(`Cam: ${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}`);
   line(`Player: ${player.x.toFixed(1)}, ${player.y.toFixed(1)}`);
