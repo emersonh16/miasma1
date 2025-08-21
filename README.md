@@ -64,8 +64,8 @@ input
 ## Contracts (stable APIs)
 
 - `store.getTile(wx, wy) -> { id, solid }`
-- `miasma.sample(wx, wy) -> 0..255`
-- `miasma.clearArea(wx, wy, r, amt) -> count`
+- `miasma.sample(wx, wy) -> 0|1`
+- `miasma.clearArea(wx, wy, r, budget?) -> count`
 - `beam.raycast(origin, dir, params) -> { hits, clearedFog }`
 
 ---
