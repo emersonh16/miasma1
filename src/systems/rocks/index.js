@@ -94,8 +94,8 @@ export function draw(ctx, cam, viewW, viewH) {
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) {
       if (rockTiles.has(tx + "," + ty)) {
-        const x = tx * TILE_SIZE - cam.x + viewW/2;
-        const y = ty * TILE_SIZE - cam.y + viewH/2;
+        const x = tx * TILE_SIZE - cam.x;
+        const y = ty * TILE_SIZE - cam.y;
         ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
       }
     }
