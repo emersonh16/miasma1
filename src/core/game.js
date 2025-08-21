@@ -4,7 +4,7 @@ import { makeCamera /*, follow */ } from "./camera.js";
 import * as miasma from "../systems/miasma/index.js";
 import * as beam from "../systems/beam/index.js";
 import { makePlayer, drawPlayer } from "../entities/player.js";
-import { clear, drawGrid, drawRocks } from "../render/draw.js";
+import { clear, drawGrid } from "../render/draw.js";
 import * as chunks from "../world/chunks.js";
 import * as wind from "../systems/wind/index.js";
 import { drawDevHUD } from "../render/devhud.js";
@@ -137,9 +137,6 @@ function frame(now) {
     cam.x += a.x * speed * dt;
     cam.y += a.y * speed * dt;
 
-    player.x = cam.x;
-    player.y = cam.y;
-
     // Stream chunks around camera center
     chunks.streamAround(cam.x, cam.y);
 
@@ -160,13 +157,15 @@ function frame(now) {
       miasma.update(dt, cam.x, cam.y, windMotion, w, h);
     }
 
-    // Rocks: ensure clusters near view
-    rocks.ensureRocksForView(player.x, player.y);
+    // Rocks: ensure clusters near view and resolve collisions
+    rocks.ensureRocksForView(cam.x, cam.y);
 
     // Prevent walking through rocks (circle vs tile push-out)
-    rocks.collidePlayer(player, player.r || 16);
+    rocks.collidePlayer(cam, player.r || 16);
 
-
+    // Sync player to resolved camera position
+    player.x = cam.x;
+    player.y = cam.y;
 
     // Health management
     if (player.maxHealth == null) player.maxHealth = 100;
