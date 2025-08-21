@@ -12,13 +12,30 @@ const MC = (config.miasma ?? {});
 const TILE_SIZE = MC.tileSize ?? 8;
 const FOG_COLOR = MC.color ?? "rgba(128,0,180,1.0)";   // fully opaque purple
 const PAD = MC.regrowPad ?? (MC.marginTiles ?? 6);
-const REGROW_BUDGET = MC.regrowBudget ??
-  Math.floor((MC.maxTilesUpdatedPerTick ?? config.maxTilesUpdatedPerTick ?? 256) / 2);
-const MAX_HOLES_PER_FRAME = MC.maxDrawTilesPerFrame ?? 4000;
+// Perf budgets (dynamic: scale with viewport)
+let REGROW_BUDGET = 512;
+let MAX_HOLES_PER_FRAME = 4000;
+let MAX_CLEARED_CAP = 50000;
+const CLEARED_TTL_S   = MC.clearedTTL ?? 20; // drop holes older than TTL (seconds)
 
-// Perf hygiene
-const CLEARED_TTL_S   = MC.clearedTTL ?? 20;       // drop holes older than TTL (seconds)
-const MAX_CLEARED_CAP = MC.maxClearedTiles ?? 50000; // safety cap for marathon runs
+function updateBudgets(viewW, viewH) {
+  const viewCols = Math.ceil(viewW / TILE_SIZE);
+  const viewRows = Math.ceil(viewH / TILE_SIZE);
+  const screenTiles = viewCols * viewRows;
+
+  // base budgets = ~1× screenful
+  REGROW_BUDGET      = Math.max(screenTiles, MC.regrowBudget ?? 512);
+  MAX_HOLES_PER_FRAME= Math.max(screenTiles, MC.maxDrawTilesPerFrame ?? 4000);
+  MAX_CLEARED_CAP    = Math.max(screenTiles * 4, MC.maxClearedTiles ?? 50000);
+
+  // debug override: crank up
+  if (config.flags.devhud) {
+    REGROW_BUDGET      *= 4;
+    MAX_HOLES_PER_FRAME*= 4;
+    MAX_CLEARED_CAP    *= 4;
+  }
+}
+
 
 // ---- State ----
 const S = {
@@ -112,8 +129,13 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
     S.oy = cy - Math.floor(S.rows / 2);
   }
 
-  // --- Regrow within a padded scan window around the view ---
+    // Recompute budgets to match screen size
+  updateBudgets(viewW, viewH);
+
   let budget = REGROW_BUDGET;
+
+
+  // --- Regrow within a padded scan window around the view ---
   const scanPad   = (MC.regrowScanPad ?? (PAD * 4));
   const viewCols  = Math.ceil(viewW / TILE_SIZE);
   const viewRows  = Math.ceil(viewH / TILE_SIZE);
