@@ -161,7 +161,11 @@ function frame(now) {
     }
 
     // Rocks: ensure clusters near view
-   rocks.ensureRocksForView(player.x, player.y);
+    rocks.ensureRocksForView(player.x, player.y);
+
+    // Prevent walking through rocks (circle vs tile push-out)
+    rocks.collidePlayer(player, player.r || 16);
+
 
 
     // Health management

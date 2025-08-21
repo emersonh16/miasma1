@@ -187,3 +187,40 @@ ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
     }
   }
 }
+
+
+// --- Collision: resolve a circle (player) against rock tiles ---
+export function collidePlayer(player, radiusOverride) {
+  if (!player) return;
+  const r = Number.isFinite(radiusOverride) ? radiusOverride : (player.r ?? 16);
+  const half = TILE_SIZE * 0.5;
+
+  // Bounding box of tiles around the player
+  const minTx = Math.floor((player.x - r) / TILE_SIZE);
+  const maxTx = Math.floor((player.x + r) / TILE_SIZE);
+  const minTy = Math.floor((player.y - r) / TILE_SIZE);
+  const maxTy = Math.floor((player.y + r) / TILE_SIZE);
+
+  for (let ty = minTy; ty <= maxTy; ty++) {
+    for (let tx = minTx; tx <= maxTx; tx++) {
+      const k = tx + "," + ty;
+      if (!rockTiles.has(k)) continue;
+
+      // Tile center in world space
+      const cx = tx * TILE_SIZE + half;
+      const cy = ty * TILE_SIZE + half;
+
+      const dx = player.x - cx;
+      const dy = player.y - cy;
+      const dist = Math.hypot(dx, dy) || 1;
+
+      const minDist = r + half;
+      if (dist < minDist) {
+        // Push the player out along the normal
+        const overlap = minDist - dist;
+        player.x += (dx / dist) * overlap;
+        player.y += (dy / dist) * overlap;
+      }
+    }
+  }
+}
