@@ -133,12 +133,12 @@ function frame(now) {
   if (!state.paused && !state.dead) {
     const a = axis();
     const speed = config.player.speed;
+    const dx = a.x * speed * dt;
+    const dy = a.y * speed * dt;
 
-    cam.x += a.x * speed * dt;
-    cam.y += a.y * speed * dt;
-
-    player.x = cam.x;
-    player.y = cam.y;
+    const { x, y } = rocks.movePlayer(cam, dx, dy, player.r || 16);
+    player.x = x;
+    player.y = y;
 
     // Stream chunks around camera center
     chunks.streamAround(cam.x, cam.y);
@@ -162,9 +162,6 @@ function frame(now) {
 
     // Rocks: ensure clusters near view
     rocks.ensureRocksForView(player.x, player.y);
-
-    // Prevent walking through rocks (circle vs tile push-out)
-    rocks.collidePlayer(player, player.r || 16);
 
 
 
