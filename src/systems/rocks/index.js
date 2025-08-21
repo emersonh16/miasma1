@@ -195,11 +195,13 @@ export function collidePlayer(player, radiusOverride) {
   const r = Number.isFinite(radiusOverride) ? radiusOverride : (player.r ?? 16);
   const half = TILE_SIZE * 0.5;
 
-  // Bounding box of tiles around the player
   const minTx = Math.floor((player.x - r) / TILE_SIZE);
   const maxTx = Math.floor((player.x + r) / TILE_SIZE);
   const minTy = Math.floor((player.y - r) / TILE_SIZE);
   const maxTy = Math.floor((player.y + r) / TILE_SIZE);
+
+  let corrX = 0;
+  let corrY = 0;
 
   for (let ty = minTy; ty <= maxTy; ty++) {
     for (let tx = minTx; tx <= maxTx; tx++) {
@@ -213,14 +215,23 @@ export function collidePlayer(player, radiusOverride) {
       const dx = player.x - cx;
       const dy = player.y - cy;
       const dist = Math.hypot(dx, dy) || 1;
-
       const minDist = r + half;
+
       if (dist < minDist) {
-        // Push the player out along the normal
         const overlap = minDist - dist;
-        player.x += (dx / dist) * overlap;
-        player.y += (dy / dist) * overlap;
+        corrX += (dx / dist) * overlap;
+        corrY += (dy / dist) * overlap;
       }
     }
   }
+
+  // Apply *combined* correction so we don't slip around corners
+  if (corrX !== 0 || corrY !== 0) {
+    player.x += corrX;
+    player.y += corrY;
+  }
 }
+
+
+// small helper
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
