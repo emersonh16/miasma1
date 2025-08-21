@@ -40,6 +40,36 @@ const BeamParams = {
   budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
 };
 
+// --- shared helpers for hitboxes ---
+function clearBubble(origin, radius, budget) {
+  return miasma.clearArea(origin.x, origin.y, radius, budget);
+}
+
+function clearCone(origin, dir, length, halfAngle, budget) {
+  const T = miasma.getTileSize();
+  let cleared = 0;
+  const ux = Math.cos(dir), uy = Math.sin(dir);
+  for (let d = T; d <= length; d += T) {
+    const cx = origin.x + ux * d;
+    const cy = origin.y + uy * d;
+    const r  = Math.max(3, Math.tan(halfAngle) * d);
+    cleared += miasma.clearArea(cx, cy, r, budget);
+  }
+  return cleared;
+}
+
+function clearLaser(origin, dir, length, thickness, budget) {
+  const T = miasma.getTileSize();
+  let cleared = 0;
+  const ux = Math.cos(dir), uy = Math.sin(dir);
+  for (let d = T; d <= length; d += T) {
+    const wx = origin.x + ux * d;
+    const wy = origin.y + uy * d;
+    cleared += miasma.clearArea(wx, wy, thickness, budget);
+  }
+  return cleared;
+}
+
 
 export function adjustLevel(delta) {
   state.level = Math.max(0, Math.min(1, state.level + delta));
