@@ -13,11 +13,17 @@ const MC = (config.miasma ?? {});
 const TILE_SIZE = MC.tileSize ?? 8;
 const FOG_COLOR = MC.color ?? "rgba(128,0,180,1.0)";   // fully opaque purple
 const PAD = MC.regrowPad ?? (MC.marginTiles ?? 6);
-// Perf budgets (dynamic: scale with viewport)
+
+// Off-screen behavior (in tiles)
+const OFFSCREEN_REG_PAD    = MC.offscreenRegrowPad  ?? (PAD * 6);   // regrow this far past view
+const OFFSCREEN_FORGET_PAD = MC.offscreenForgetPad ?? (PAD * 12);  // beyond this, auto-reset
+
+// Perf budgets (dynamic)
 let REGROW_BUDGET = 512;
 let MAX_HOLES_PER_FRAME = 4000;
 let MAX_CLEARED_CAP = 50000;
 const CLEARED_TTL_S   = MC.clearedTTL ?? 20; // drop holes older than TTL (seconds)
+
 
 function updateBudgets(viewW, viewH) {
   const viewCols = Math.ceil(viewW / TILE_SIZE);
@@ -46,9 +52,10 @@ const S = {
   time: 0,
   // Fog phase (in tiles) — where the fog field is relative to world due to wind
   fxTiles: 0, fyTiles: 0,
-  // perf stats (reset each update)
-  stats: { clearCalls: 0, regrow: 0, drawHoles: 0 }
+  // perf stats
+  stats: { clearCalls: 0, regrow: 0, drawHoles: 0, forgotOffscreen: 0 }
 };
+
 
 
 
@@ -81,8 +88,10 @@ export function getStats() {
     lastRegrow: S.stats.regrow,
     lastClearCalls: S.stats.clearCalls,
     lastDrawHoles: S.stats.drawHoles,
+    lastForgot: S.stats.forgotOffscreen,
   };
 }
+
 export function getBudgets() {
   return {
     regrowBudget: REGROW_BUDGET,
@@ -134,10 +143,13 @@ export function clearArea(wx, wy, r, _amt = 64) {
 
 export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, viewW = S.viewW, viewH = S.viewH) {
   S.time += dt;
+
   // reset per-frame stats
   S.stats.clearCalls = 0;
   S.stats.regrow = 0;
   S.stats.drawHoles = 0;
+  S.stats.forgotOffscreen = 0;
+
 
 
     // Advect fog by wind (world units → tiles)
@@ -167,10 +179,24 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
   const scanPad   = (MC.regrowScanPad ?? (PAD * 4));
   const viewCols  = Math.ceil(viewW / TILE_SIZE);
   const viewRows  = Math.ceil(viewH / TILE_SIZE);
+
+  // Base keep (what we absolutely keep scanning every frame)
   const keepLeft   = Math.floor((centerWX - viewW/2) / TILE_SIZE) - scanPad;
   const keepTop    = Math.floor((centerWY - viewH/2) / TILE_SIZE) - scanPad;
   const keepRight  = keepLeft + viewCols + scanPad*2;
   const keepBottom = keepTop  + viewRows + scanPad*2;
+
+  // Extended regrow band (slightly larger off-screen)
+  const regLeft    = keepLeft   - OFFSCREEN_REG_PAD;
+  const regTop     = keepTop    - OFFSCREEN_REG_PAD;
+  const regRight   = keepRight  + OFFSCREEN_REG_PAD;
+  const regBottom  = keepBottom + OFFSCREEN_REG_PAD;
+
+  // Far forget band (anything beyond is dropped immediately)
+  const forgetLeft   = keepLeft   - Math.max(OFFSCREEN_FORGET_PAD, OFFSCREEN_REG_PAD + PAD);
+  const forgetTop    = keepTop    - Math.max(OFFSCREEN_FORGET_PAD, OFFSCREEN_REG_PAD + PAD);
+  const forgetRight  = keepRight  + Math.max(OFFSCREEN_FORGET_PAD, OFFSCREEN_REG_PAD + PAD);
+  const forgetBottom = keepBottom + Math.max(OFFSCREEN_FORGET_PAD, OFFSCREEN_REG_PAD + PAD);
 
   const chance = (MC.regrowChance ?? 0.6) * (MC.regrowSpeedFactor ?? 1);
   const delayS = (MC.regrowDelay ?? 1.0);
@@ -180,13 +206,21 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
   for (const [k, tCleared] of clearedMap) {
     if (budget <= 0) break;
 
-    // Fog‑space coords
+    // Fog-space coords → world-space tile coords
     const [fx, fy] = k.split(",").map(Number);
-
-    // Convert to world tiles for clipping
     const tx = fx + offX;
     const ty = fy + offY;
-    if (tx < keepLeft || tx >= keepRight || ty < keepTop || ty >= keepBottom) continue;
+
+    // Far outside? forget immediately so wind can't bring it back
+    if (tx < forgetLeft || tx >= forgetRight || ty < forgetTop || ty >= forgetBottom) {
+      clearedMap.delete(k);
+      S.stats.forgotOffscreen++;
+      continue;
+    }
+
+    // Outside extended regrow band? skip (neither grow nor delete)
+    if (tx < regLeft || tx >= regRight || ty < regTop || ty >= regBottom) continue;
+
 
     if ((S.time - tCleared) < delayS) continue;
 
