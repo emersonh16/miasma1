@@ -55,9 +55,9 @@ export function generateChunk(cx, cy) {
       const ly = Math.floor(rand() * CHUNK_SIZE);
       const idx = ly * CHUNK_SIZE + lx;
       if (tiles[idx].solid) continue;
-      const wx = baseWX + lx * TILE_SIZE + TILE_SIZE * 0.5;
-      const wy = baseWY + ly * TILE_SIZE + TILE_SIZE * 0.5;
-      entities.push(makeEnemy(wx, wy));
+      const x = baseWX + lx * TILE_SIZE + TILE_SIZE * 0.5;
+      const y = baseWY + ly * TILE_SIZE + TILE_SIZE * 0.5;
+      entities.push(makeEnemy(x, y));
       break;
     }
   }
