@@ -243,13 +243,19 @@ export function raycast(origin, dir, params = {}) {
 
 
 
+if (mode === "bubble") {
+  const r = BeamParams.bubbleRadius + TILE_PAD;
+  const T = miasma.getTileSize();
 
-  if (mode === "bubble") {
-    const r = BeamParams.bubbleRadius + TILE_PAD;
-    clearedFog += miasma.clearArea(origin.x, origin.y, r, Math.max(900, MAX_PER_STEP));
-    return { hits: [], clearedFog };
-  }
+  // snap to tile center so the cleared hole aligns visually with the drawn bubble
+  const cx = Math.round(origin.x / T) * T + T * 0.5;
+  const cy = Math.round(origin.y / T) * T + T * 0.5;
 
+  clearedFog += miasma.clearArea(cx, cy, r, Math.max(900, MAX_PER_STEP));
+  return { hits: [], clearedFog };
+}
+
+ 
   return { hits: [], clearedFog };
 }
 
