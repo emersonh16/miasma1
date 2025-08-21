@@ -62,46 +62,65 @@ export function getParams() { return { ...BeamParams }; }
 export function raycast(origin, dir, params = {}) {
   const mode = params.mode || MODES[state.modeIndex];
   const MAX_PER_STEP = BeamParams.budgetPerStamp;
+  const T = miasma.getTileSize();                    // world px per fog tile:contentReference[oaicite:0]{index=0}
+  const TILE_PAD = T * 0.15;                         // tiny pad to avoid tile-edge misses
   let clearedFog = 0;
 
   if (mode === "laser") {
-    const STEPS = 24;
-    const step = BeamParams.laserLength / STEPS;
-    const r = Math.max(2, BeamParams.laserThickness * 0.5);
-    for (let i = 1; i <= STEPS; i++) {
-      const wx = origin.x + Math.cos(dir) * i * step;
-      const wy = origin.y + Math.sin(dir) * i * step;
+    const len = BeamParams.laserLength;
+    // Add a small tile-based pad so the visual line (thickness) always clears at least 1 tile across
+    const r = Math.max(2, BeamParams.laserThickness * 0.5 + TILE_PAD);
+    // March so stamps overlap (~90%) → no micro-gaps between circles
+    const stride = Math.max(T * 0.5, r * 0.9);
+    for (let d = stride; d <= len; d += stride) {
+      const wx = origin.x + Math.cos(dir) * d;
+      const wy = origin.y + Math.sin(dir) * d;
+      clearedFog += miasma.clearArea(wx, wy, r, MAX_PER_STEP);
+    }
+    // Ensure tip is stamped (in case stride undershot)
+    {
+      const wx = origin.x + Math.cos(dir) * len;
+      const wy = origin.y + Math.sin(dir) * len;
       clearedFog += miasma.clearArea(wx, wy, r, MAX_PER_STEP);
     }
     return { hits: [], clearedFog };
   }
 
   if (mode === "cone") {
-    const STEPS = 14;
-    const step = BeamParams.coneLength / STEPS;
+    const length = BeamParams.coneLength;
     const halfA = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
-    for (let i = 1; i <= STEPS; i++) {
-      const d = i * step;
+    // Adaptive march: at each distance, stamp with local half-width radius and stride ~60% of it
+    for (let d = Math.max(T * 0.5, 1); d <= length; ) {
       const wx = origin.x + Math.cos(dir) * d;
       const wy = origin.y + Math.sin(dir) * d;
-      const halfWidth = Math.tan(halfA) * d; // literal 128° wedge
-      const rr = Math.max(6, halfWidth);     // small floor to avoid gaps near apex
+      // Exact visual half-width of the wedge at distance d
+      const halfWidth = Math.tan(halfA) * d;
+      const rr = Math.max(6, halfWidth + TILE_PAD);
+      clearedFog += miasma.clearArea(wx, wy, rr, MAX_PER_STEP);
+
+      // stride scales with radius to keep overlaps tight; clamp to sane bounds
+      const stride = Math.min(Math.max(T * 0.5, rr * 0.6), Math.max(32, rr));
+      d += stride;
+    }
+    // Stamp far tip for completeness
+    {
+      const wx = origin.x + Math.cos(dir) * length;
+      const wy = origin.y + Math.sin(dir) * length;
+      const rr = Math.max(6, Math.tan(halfA) * length + TILE_PAD);
       clearedFog += miasma.clearArea(wx, wy, rr, MAX_PER_STEP);
     }
     return { hits: [], clearedFog };
   }
 
   if (mode === "bubble") {
-    clearedFog += miasma.clearArea(
-      origin.x, origin.y, BeamParams.bubbleRadius, Math.max(900, MAX_PER_STEP)
-    );
+    // Pad radius slightly so the visual edge doesn't leave a 1-tile fog ring
+    const r = BeamParams.bubbleRadius + TILE_PAD;
+    clearedFog += miasma.clearArea(origin.x, origin.y, r, Math.max(900, MAX_PER_STEP));
     return { hits: [], clearedFog };
   }
 
   return { hits: [], clearedFog };
 }
-
-
 
 
 export function draw(ctx, cam, player) {
