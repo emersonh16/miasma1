@@ -157,99 +157,39 @@ export function raycast(origin, dir, params = {}) {
 
 
   if (mode === "cone") {
-    // Pixel-safe cone clear:
-    // - sub-tile scanlines (T/4) across the wedge body
-    // - partial-ellipse tip sampled at T/4
-    // Guarantees: any drawn gold pixel sits on at least one cleared tile.
+    // Simplified CONE → spotlight circle at the tip.
+    // Center = origin + dir * coneLength
+    // Radius = coneLength * tan(halfAngle)  (matches visual width at the tip)
+    // We clear a single big circle so there are zero seams.
 
     const len   = BeamParams.coneLength;
     const halfA = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
 
-    const ux = Math.cos(dir),  uy = Math.sin(dir);   // beam axis
-    const nx = -Math.sin(dir), ny = Math.cos(dir);   // beam normal
+    const ux = Math.cos(dir),  uy = Math.sin(dir);
 
-    // Finer sampling than before
-    const stepD = Math.max(T * 0.25, 1);   // forward step (≈ 1px with T=4)
-    const stepW = Math.max(T * 0.25, 1);   // cross step
-    const tinyR = Math.max(0.28 * T + TILE_PAD, 1.75); // small overlap radius
+    // tip center (no tile snap needed; circle will cover)
+    const cx = origin.x + ux * len;
+    const cy = origin.y + uy * len;
 
-    // Tip lens params (MUST mirror draw())
-    const tipArcFrac = 0.65;
-    const tipRxFrac  = 0.55;
+    // radius at the far edge of the cone
+    const rTip = Math.max(4, Math.tan(halfA) * len) + TILE_PAD;
 
-    // Dynamic cap (bounded but scales with cone size)
-    const worst = ((len / stepD) * (2 * Math.tan(halfA) * len / stepW)) | 0;
-    const MAX_STAMPS = Math.min(Math.max(40000, worst + 4000), 200000);
-    let stamps = 0;
-
-    // 1) BODY — dense scanlines
-    for (let d = 0; d <= len && stamps < MAX_STAMPS; d += stepD) {
-      const halfW = Math.tan(halfA) * d + 1e-6; // epsilon to include boundary
-      const cx = origin.x + ux * d;
-      const cy = origin.y + uy * d;
-
-      // sweep across
-      let off = -halfW;
-      for (; off <= halfW && stamps < MAX_STAMPS; off += stepW) {
-        const wx = cx + nx * off;
-        const wy = cy + ny * off;
-        clearedFog += miasma.clearArea(wx, wy, tinyR, MAX_PER_STEP);
-        stamps++;
-      }
-      // force exact edge stamps
-      if (halfW > 0 && stamps < MAX_STAMPS) {
-        clearedFog += miasma.clearArea(cx + nx * (-halfW), cy + ny * (-halfW), tinyR, MAX_PER_STEP); stamps++;
-        clearedFog += miasma.clearArea(cx + nx * ( halfW), cy + ny * ( halfW), tinyR, MAX_PER_STEP);  stamps++;
-      }
-    }
-
-    // 2) TIP — partial ellipse sampled at T/4 spacing
-    {
-      const farHalfW = Math.tan(halfA) * len;
-      const ry = Math.max(4, farHalfW);
-      const rx = Math.max(4, ry * tipRxFrac);
-      const alpha = tipArcFrac * (Math.PI / 2);
-
-      const tipX = origin.x + ux * len;
-      const tipY = origin.y + uy * len;
-
-      const minEx = -rx, maxEx = rx;
-      const minEy = -ry, maxEy = ry;
-
-      const stepEx = stepW;
-      const stepEy = stepW;
-
-      for (let ey = minEy; ey <= maxEy && stamps < MAX_STAMPS; ey += stepEy) {
-        for (let ex = minEx; ex <= maxEx && stamps < MAX_STAMPS; ex += stepEx) {
-          // inside ellipse?
-          if ((ex*ex)/(rx*rx) + (ey*ey)/(ry*ry) > 1) continue;
-          // within partial arc window
-          const ang = Math.atan2(ey, ex);
-          if (ang < -alpha || ang > +alpha) continue;
-
-          const wx = tipX + ux * ex + nx * ey;
-          const wy = tipY + uy * ex + ny * ey;
-          clearedFog += miasma.clearArea(wx, wy, tinyR, MAX_PER_STEP);
-          stamps++;
-        }
-      }
-      // center reinforcement
-      if (stamps < MAX_STAMPS) clearedFog += miasma.clearArea(tipX, tipY, tinyR, MAX_PER_STEP);
-    }
-
+    // one decisive clear
+    clearedFog += miasma.clearArea(cx, cy, rTip, Math.max(MAX_PER_STEP, 4000));
     return { hits: [], clearedFog };
   }
 
 
 
 
+
 if (mode === "bubble") {
   const r = BeamParams.bubbleRadius + TILE_PAD;
-  const T = miasma.getTileSize();
+  const Tz = miasma.getTileSize();
 
-  // snap to tile center so the cleared hole aligns visually with the drawn bubble
-  const cx = Math.round(origin.x / T) * T + T * 0.5;
-  const cy = Math.round(origin.y / T) * T + T * 0.5;
+  // Snap to the center of the TILE YOU'RE IN (no 1/2‑tile drift)
+  const cx = Math.floor(origin.x / Tz) * Tz + Tz * 0.5;
+  const cy = Math.floor(origin.y / Tz) * Tz + Tz * 0.5;
 
   clearedFog += miasma.clearArea(cx, cy, r, Math.max(900, MAX_PER_STEP));
   return { hits: [], clearedFog };
@@ -309,38 +249,22 @@ export function draw(ctx, cam, player) {
     ctx.beginPath(); ctx.arc(len, 0, tipR * 2, 0, Math.PI * 2); ctx.fill();
 
   } else {
-    const length = BeamParams.coneLength;
-    const halfAngle = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
-    const farHalfWidth = Math.tan(halfAngle) * length;
+// Visual CONE simplified to a spotlight circle at the tip (same hue/opacity as bubble)
+const length = BeamParams.coneLength;
+const halfAngle = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
 
-    const tipArcFrac = 0.65;
-    const tipRxFrac  = 0.55;
-    const rx = Math.max(8, farHalfWidth * tipRxFrac);
-    const ry = Math.max(8, farHalfWidth);
-    const alpha = tipArcFrac * (Math.PI / 2);
 
-    const base = ctx.createLinearGradient(0, 0, length, 0);
-    base.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`);
-    base.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
-    ctx.fillStyle = base;
+    const r = Math.max(8, Math.tan(halfAngle) * length); // tip radius
+    const g = ctx.createRadialGradient(length, 0, 0, length, 0, r);
+    g.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`); // match bubble core feel
+    g.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
 
+    ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(length, -farHalfWidth);
-    ctx.lineTo(length,  farHalfWidth);
-    ctx.closePath();
-    ctx.fill();
-
-    const lens = ctx.createRadialGradient(length, 0, Math.max(2, rx * 0.2), length, 0, Math.max(rx, ry));
-    lens.addColorStop(0.0, `rgba(${LIGHT_RGB},0.28)`);
-    lens.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
-    ctx.fillStyle = lens;
-
-    ctx.beginPath();
-    ctx.ellipse(length, 0, rx, ry, 0, -alpha, +alpha, false);
-    ctx.closePath();
+    ctx.arc(length, 0, r, 0, Math.PI * 2);
     ctx.fill();
   }
+
 
   ctx.globalCompositeOperation = prevComp;
   ctx.globalAlpha = prevAlpha;
