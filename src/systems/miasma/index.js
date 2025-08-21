@@ -59,15 +59,43 @@ const S = {
 
 
 
-// Cleared fog tiles in ABSOLUTE tile coords: numeric key -> timeCleared
-/** @type {Map<number, number>} */
+// Cleared fog tiles grouped by row (fog-space coords)
+// Map<ty, Set<tx>> for fast row iteration during draw
+/** @type {Map<number, Set<number>>} */
 const clearedMap = new Map();
+
+// Timestamp of when each tile was cleared: packed key -> timeCleared
+/** @type {Map<number, number>} */
+const clearedTimes = new Map();
 
 // Pack two signed 16-bit tile coordinates into a single 32-bit integer key
 const KEY_SHIFT = 16;
 const KEY_MASK = 0xffff;
 const KEY_OFFSET = 0x8000; // offset to handle negatives
 const key = (tx, ty) => ((tx + KEY_OFFSET) << KEY_SHIFT) | ((ty + KEY_OFFSET) & KEY_MASK);
+
+function hasTile(fx, fy) {
+  const row = clearedMap.get(fy);
+  return row ? row.has(fx) : false;
+}
+
+function addTile(fx, fy, time) {
+  let row = clearedMap.get(fy);
+  if (!row) { row = new Set(); clearedMap.set(fy, row); }
+  row.add(fx);
+  clearedTimes.set(key(fx, fy), time);
+}
+
+function removeTileByKey(k) {
+  const fx = (k >>> KEY_SHIFT) - KEY_OFFSET;
+  const fy = (k & KEY_MASK) - KEY_OFFSET;
+  const row = clearedMap.get(fy);
+  if (row) {
+    row.delete(fx);
+    if (row.size === 0) clearedMap.delete(fy);
+  }
+  clearedTimes.delete(k);
+}
 
 // ---- API ----
 export function init(viewW, viewH, centerWX = 0, centerWY = 0) {
@@ -90,7 +118,8 @@ export function getOrigin()   { return { ox: S.ox, oy: S.oy }; }
 export function getStats() {
   return {
     time: S.time,
-    clearedMapSize: clearedMap.size,
+    // count individual cleared tiles, not rows
+    clearedMapSize: clearedTimes.size,
     lastRegrow: S.stats.regrow,
     lastClearCalls: S.stats.clearCalls,
     lastDrawHoles: S.stats.drawHoles,
@@ -112,7 +141,8 @@ export function sample(wx, wy) {
   const [tx, ty] = worldToTile(wx, wy, TILE_SIZE);
   const ftx = Math.floor(tx - S.fxTiles);
   const fty = Math.floor(ty - S.fyTiles);
-  return clearedMap.has(key(ftx, fty)) ? 0 : 1;
+  const row = clearedMap.get(fty);
+  return (row && row.has(ftx)) ? 0 : 1;
 }
 
 
@@ -134,11 +164,10 @@ export function clearArea(wx, wy, r, _amt = 64) {
       const centerY = (ty + 0.5) * TILE_SIZE;
       const dxw = centerX - wx, dyw = centerY - wy;
       if ((dxw * dxw + dyw * dyw) > r2) continue;
-           const ftx = Math.floor(tx - S.fxTiles);
+      const ftx = Math.floor(tx - S.fxTiles);
       const fty = Math.floor(ty - S.fyTiles);
-      const k = key(ftx, fty);
-        if (!clearedMap.has(k)) {
-        clearedMap.set(k, S.time);
+      if (!hasTile(ftx, fty)) {
+        addTile(ftx, fty, S.time);
         cleared++; budget--;
         S.stats.clearCalls++; // PERF: count successful clears
       }
@@ -213,7 +242,7 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
   const SCAN_CAP = MC.maxRegrowScanPerFrame ?? 4000;
   let scanned = 0;
 
-  for (const [k, tCleared] of clearedMap) {
+  for (const [k, tCleared] of clearedTimes) {
     if (budget <= 0 || scanned >= SCAN_CAP) break;
     scanned++;
 
@@ -226,7 +255,7 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
 
     // Far outside? forget immediately so wind can't bring it back
     if (tx < forgetLeft || tx >= forgetRight || ty < forgetTop || ty >= forgetBottom) {
-      clearedMap.delete(k);
+      removeTileByKey(k);
       S.stats.forgotOffscreen++;
       continue;
     }
@@ -239,42 +268,42 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
 
     // Neighbor fog in fog‑space
     const nFog =
-      (!clearedMap.has(key(fx - 1, fy    ))) ||
-      (!clearedMap.has(key(fx + 1, fy    ))) ||
-      (!clearedMap.has(key(fx,     fy - 1))) ||
-      (!clearedMap.has(key(fx,     fy + 1)));
+      (!hasTile(fx - 1, fy    )) ||
+      (!hasTile(fx + 1, fy    )) ||
+      (!hasTile(fx,     fy - 1)) ||
+      (!hasTile(fx,     fy + 1));
 
     if (nFog && Math.random() < chance) { toGrow.push(k); budget--; }
   }
 
 
-  for (const k of toGrow) clearedMap.delete(k);
+  for (const k of toGrow) removeTileByKey(k);
   S.stats.regrow = toGrow.length;
 
 
   // --- Aging & safety cap (keeps long runs stable) ---
-  if (clearedMap.size) {
+  if (clearedTimes.size) {
     const nowT = S.time;
 
     // TTL: drop entries older than TTL seconds
     if (CLEARED_TTL_S > 0) {
-      for (const [k, tCleared] of clearedMap) {
-        if (nowT - tCleared > CLEARED_TTL_S) clearedMap.delete(k);
+      for (const [k, tCleared] of clearedTimes) {
+        if (nowT - tCleared > CLEARED_TTL_S) removeTileByKey(k);
       }
     }
 
     // Hard cap: drop oldest if we explode beyond cap
-    if (clearedMap.size > MAX_CLEARED_CAP) {
-      const overflow = clearedMap.size - MAX_CLEARED_CAP;
+    if (clearedTimes.size > MAX_CLEARED_CAP) {
+      const overflow = clearedTimes.size - MAX_CLEARED_CAP;
       let scanned = 0, removed = 0;
       const candidates = [];
-      for (const [k, tCleared] of clearedMap) {
+      for (const [k, tCleared] of clearedTimes) {
         candidates.push([k, tCleared]);
-        if (++scanned >= Math.min(clearedMap.size, overflow * 2)) break;
+        if (++scanned >= Math.min(clearedTimes.size, overflow * 2)) break;
       }
       candidates.sort((a, b) => a[1] - b[1]); // oldest first
       for (let i = 0; i < candidates.length && removed < overflow; i++) {
-        clearedMap.delete(candidates[i][0]);
+        removeTileByKey(candidates[i][0]);
         removed++;
       }
     }
@@ -306,39 +335,26 @@ export function draw(ctx, cam, w, h) {
   ctx.beginPath();
 
   const offX = Math.floor(S.fxTiles), offY = Math.floor(S.fyTiles);
-  const rows = new Map(); // ty -> number[] of tx
-
-  // Bucket visible tiles by row
-  for (const k of clearedMap.keys()) {
-    const fx = (k >>> KEY_SHIFT) - KEY_OFFSET;
-    const fy = (k & KEY_MASK) - KEY_OFFSET;
-    const tx = fx + offX;
-    const ty = fy + offY;
-    if (tx < left || tx >= right || ty < top || ty >= bottom) continue;
-    let xs = rows.get(ty);
-    if (!xs) { xs = []; rows.set(ty, xs); }
-    xs.push(tx);
-  }
 
   // Build rects per row by merging contiguous runs
   let tilesDrawn = 0;
-  for (const [ty, xs] of rows) {
-    xs.sort((a,b) => a - b);
+  outer: for (const [fy, xs] of clearedMap) {
+    const ty = fy + offY;
+    if (ty < top || ty >= bottom) continue;
     let runStart = null, prev = null;
-    for (let i = 0; i < xs.length; i++) {
-      const x = xs[i];
-      if (runStart === null) { runStart = prev = x; continue; }
-      if (x === prev + 1) { prev = x; continue; }
+    for (const fx of xs) {
+      const tx = fx + offX;
+      if (tx < left || tx >= right) continue;
+      if (runStart === null) { runStart = prev = tx; continue; }
+      if (tx === prev + 1) { prev = tx; continue; }
 
-      // flush run
       const runLen = prev - runStart + 1;
       ctx.rect(runStart * TILE_SIZE, ty * TILE_SIZE, runLen * TILE_SIZE, TILE_SIZE);
       tilesDrawn += runLen;
-      if (tilesDrawn >= MAX_HOLES_PER_FRAME) break;
+      if (tilesDrawn >= MAX_HOLES_PER_FRAME) break outer;
 
-      runStart = prev = x;
+      runStart = prev = tx;
     }
-    if (tilesDrawn >= MAX_HOLES_PER_FRAME) break;
     if (runStart !== null) {
       const runLen = prev - runStart + 1;
       ctx.rect(runStart * TILE_SIZE, ty * TILE_SIZE, runLen * TILE_SIZE, TILE_SIZE);
