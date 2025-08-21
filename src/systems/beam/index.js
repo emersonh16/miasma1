@@ -17,34 +17,7 @@ export function modeDown(steps = 1) { state.modeIndex = Math.max(0, state.modeIn
 export function setAngle(rad) { state.angle = rad || 0; }
 export function getAngle()   { return state.angle; }
 
-// ---- shared params so raycast == visuals ----
-function paramsFor(mode, T) {
-  const B = config.beam || {};
-  if (mode === "laser") {
-    const b = B.laser || {};
-    return {
-      steps: b.steps ?? 24,
-      step:  (b.stepTiles ?? 3) * T,
-      radius:(b.radiusTiles ?? 6) * T,
-      thickness: (b.thicknessTiles ?? 0.5) * T
-    };
-  }
-  if (mode === "cone") {
-    const b = B.cone || {};
-    return {
-      steps: b.steps ?? 10,
-      step:  (b.stepTiles ?? 3) * T,
-      radius:(b.radiusTiles ?? 10) * T,   // used as half-width at far end
-    };
-  }
-  if (mode === "bubble") {
-    const b = B.bubble || {};
-    return { radius: (b.radiusTiles ?? 14) * T };
-  }
-  return {};
-}
-
-// ---- Live‑tunable beam params (pixels, world space) ----
+// ---- Live-tunable beam params (pixels in world space) ----
 const BeamParams = {
   bubbleRadius: 64,        // px → 128px diameter
   laserLength: 384,        // px
@@ -57,27 +30,24 @@ const BeamParams = {
 export function setParams(patch = {}) { Object.assign(BeamParams, patch); }
 export function getParams() { return { ...BeamParams }; }
 
-
 // ---- hit test & clearing (hitbox matches visuals) ----
 export function raycast(origin, dir, params = {}) {
   const mode = params.mode || MODES[state.modeIndex];
   const MAX_PER_STEP = BeamParams.budgetPerStamp;
-  const T = miasma.getTileSize();                    // world px per fog tile:contentReference[oaicite:0]{index=0}
-  const TILE_PAD = T * 0.15;                         // tiny pad to avoid tile-edge misses
+  const T = miasma.getTileSize();
+  const TILE_PAD = T * 0.15;
   let clearedFog = 0;
 
   if (mode === "laser") {
     const len = BeamParams.laserLength;
-    // Add a small tile-based pad so the visual line (thickness) always clears at least 1 tile across
     const r = Math.max(2, BeamParams.laserThickness * 0.5 + TILE_PAD);
-    // March so stamps overlap (~90%) → no micro-gaps between circles
     const stride = Math.max(T * 0.5, r * 0.9);
     for (let d = stride; d <= len; d += stride) {
       const wx = origin.x + Math.cos(dir) * d;
       const wy = origin.y + Math.sin(dir) * d;
       clearedFog += miasma.clearArea(wx, wy, r, MAX_PER_STEP);
     }
-    // Ensure tip is stamped (in case stride undershot)
+    // tip reinforcement
     {
       const wx = origin.x + Math.cos(dir) * len;
       const wy = origin.y + Math.sin(dir) * len;
@@ -87,33 +57,68 @@ export function raycast(origin, dir, params = {}) {
   }
 
   if (mode === "cone") {
-    const length = BeamParams.coneLength;
+    const len = BeamParams.coneLength;
     const halfA = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
-    // Adaptive march: at each distance, stamp with local half-width radius and stride ~60% of it
-    for (let d = Math.max(T * 0.5, 1); d <= length; ) {
-      const wx = origin.x + Math.cos(dir) * d;
-      const wy = origin.y + Math.sin(dir) * d;
-      // Exact visual half-width of the wedge at distance d
-      const halfWidth = Math.tan(halfA) * d;
-      const rr = Math.max(6, halfWidth + TILE_PAD);
-      clearedFog += miasma.clearArea(wx, wy, rr, MAX_PER_STEP);
 
-      // stride scales with radius to keep overlaps tight; clamp to sane bounds
-      const stride = Math.min(Math.max(T * 0.5, rr * 0.6), Math.max(32, rr));
-      d += stride;
+    const ux = Math.cos(dir),  uy = Math.sin(dir);   // beam axis
+    const nx = -Math.sin(dir), ny = Math.cos(dir);   // beam normal
+
+    const STEP_D = Math.max(T * 0.75, 3);
+    const STEP_W = Math.max(T * 0.75, 3);
+    const R_DISC = Math.max(T * 0.75 + TILE_PAD, 4);
+
+    const MAX_STAMPS = Math.max(1000, Math.floor(BeamParams.budgetPerStamp * 8));
+    let stamps = 0;
+
+    // interior fill
+    for (let d = 0; d <= len && stamps < MAX_STAMPS; d += STEP_D) {
+      const cx = origin.x + ux * d;
+      const cy = origin.y + uy * d;
+      const halfW = Math.tan(halfA) * d;
+
+      for (let off = -halfW; off <= halfW && stamps < MAX_STAMPS; off += STEP_W) {
+        const wx = cx + nx * off;
+        const wy = cy + ny * off;
+        clearedFog += miasma.clearArea(wx, wy, R_DISC, MAX_PER_STEP);
+        stamps++;
+      }
+
+      // edges
+      if (halfW > 0 && stamps < MAX_STAMPS) {
+        clearedFog += miasma.clearArea(cx + nx * (-halfW), cy + ny * (-halfW), R_DISC, MAX_PER_STEP); stamps++;
+        clearedFog += miasma.clearArea(cx + nx * ( halfW), cy + ny * ( halfW), R_DISC, MAX_PER_STEP);  stamps++;
+      }
     }
-    // Stamp far tip for completeness
+
+    // tip partial ellipse
     {
-      const wx = origin.x + Math.cos(dir) * length;
-      const wy = origin.y + Math.sin(dir) * length;
-      const rr = Math.max(6, Math.tan(halfA) * length + TILE_PAD);
-      clearedFog += miasma.clearArea(wx, wy, rr, MAX_PER_STEP);
+      const tipArcFrac = 0.65;
+      const tipRxFrac  = 0.55;
+      const ry = Math.max(8, Math.tan(halfA) * len);
+      const rx = Math.max(8, ry * tipRxFrac);
+      const alpha = tipArcFrac * (Math.PI / 2);
+
+      const tipX = origin.x + ux * len;
+      const tipY = origin.y + uy * len;
+
+      const discR = Math.max(6, TILE_PAD + Math.max(T * 0.5, Math.min(rx, ry) * 0.25));
+      const steps = 7;
+      for (let i = 0; i < steps && stamps < MAX_STAMPS; i++) {
+        const t = -alpha + (i * (2 * alpha) / (steps - 1));
+        const ex = rx * Math.cos(t);
+        const ey = ry * Math.sin(t);
+        const ax = tipX + ux * ex + nx * ey;
+        const ay = tipY + uy * ex + ny * ey;
+        clearedFog += miasma.clearArea(ax, ay, discR, MAX_PER_STEP);
+        stamps++;
+      }
+      if (stamps < MAX_STAMPS) clearedFog += miasma.clearArea(tipX, tipY, discR, MAX_PER_STEP);
     }
+
     return { hits: [], clearedFog };
   }
 
   if (mode === "bubble") {
-    // Pad radius slightly so the visual edge doesn't leave a 1-tile fog ring
     const r = BeamParams.bubbleRadius + TILE_PAD;
     clearedFog += miasma.clearArea(origin.x, origin.y, r, Math.max(900, MAX_PER_STEP));
     return { hits: [], clearedFog };
@@ -122,12 +127,11 @@ export function raycast(origin, dir, params = {}) {
   return { hits: [], clearedFog };
 }
 
-
+// ---- visuals ----
 export function draw(ctx, cam, player) {
   const mode = MODES[state.modeIndex];
   if (mode === "off") return;
 
-  // Unified light color (same hue; opacity varies by focus)
   const LIGHT_RGB = "255,240,0";
 
   ctx.save();
@@ -139,11 +143,8 @@ export function draw(ctx, cam, player) {
   ctx.globalCompositeOperation = "lighter";
 
   if (mode === "bubble") {
-    // Visuals: bubbleRadius → diameter live from params
     const r = BeamParams.bubbleRadius;
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-
-    // same color, low opacity center fading to 0
     g.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`);
     g.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
     ctx.fillStyle = g;
@@ -152,30 +153,22 @@ export function draw(ctx, cam, player) {
     ctx.fill();
 
   } else if (mode === "laser") {
-    // Visuals: use live params
     const len = BeamParams.laserLength;
     const thick = BeamParams.laserThickness;
-
-
-    // Single hue; layered opacity for glow while staying “one color”
     ctx.lineCap = "round";
 
-    // outer soft aura
     ctx.strokeStyle = `rgba(${LIGHT_RGB},0.25)`;
     ctx.lineWidth = thick * 2.25;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
 
-    // mid body
     ctx.strokeStyle = `rgba(${LIGHT_RGB},0.6)`;
     ctx.lineWidth = thick * 1.25;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
 
-    // core
     ctx.strokeStyle = `rgba(${LIGHT_RGB},1.0)`;
     ctx.lineWidth = thick;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
 
-    // tip bloom (same hue)
     const tipR = Math.max(thick * 1.6, 6);
     const tip = ctx.createRadialGradient(len, 0, 0, len, 0, tipR * 2);
     tip.addColorStop(0, `rgba(${LIGHT_RGB},0.9)`);
@@ -184,18 +177,18 @@ export function draw(ctx, cam, player) {
     ctx.beginPath(); ctx.arc(len, 0, tipR * 2, 0, Math.PI * 2); ctx.fill();
 
   } else {
-    // CONE: simpler look to match bubble color/feel.
-    // - Single hue, soft opacity like bubble (no center line, no rim stroke).
-    // - Wedge filled with a gentle length fade.
-    // - Subtle rounded cap at the far edge via a soft radial gradient.
-
     const length = BeamParams.coneLength;
     const halfAngle = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
     const farHalfWidth = Math.tan(halfAngle) * length;
 
-    // 1) Base wedge (same hue as bubble, similar opacity profile)
+    const tipArcFrac = 0.65;
+    const tipRxFrac  = 0.55;
+    const rx = Math.max(8, farHalfWidth * tipRxFrac);
+    const ry = Math.max(8, farHalfWidth);
+    const alpha = tipArcFrac * (Math.PI / 2);
+
     const base = ctx.createLinearGradient(0, 0, length, 0);
-    base.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`); // match bubble core opacity
+    base.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`);
     base.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
     ctx.fillStyle = base;
 
@@ -206,23 +199,16 @@ export function draw(ctx, cam, player) {
     ctx.closePath();
     ctx.fill();
 
-    // 2) Soft rounded lens at the flat edge (very simple, no stroke)
-    //    A radial gradient centered at the tip that gently rounds the edge.
-    //    Radius uses the wedge half-width; inner opacity ~bubble core, fading to 0.
-    const tipR = Math.max(8, farHalfWidth);
-    const tip = ctx.createRadialGradient(length, 0, tipR * 0.25, length, 0, tipR);
-    tip.addColorStop(0.00, `rgba(${LIGHT_RGB},0.28)`); // just under bubble core to blend
-    tip.addColorStop(1.00, `rgba(${LIGHT_RGB},0.00)`);
-    ctx.fillStyle = tip;
+    const lens = ctx.createRadialGradient(length, 0, Math.max(2, rx * 0.2), length, 0, Math.max(rx, ry));
+    lens.addColorStop(0.0, `rgba(${LIGHT_RGB},0.28)`);
+    lens.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
+    ctx.fillStyle = lens;
 
     ctx.beginPath();
-    ctx.moveTo(length, -farHalfWidth);
-    ctx.lineTo(length,  farHalfWidth);
-    ctx.arc(length, 0, tipR, Math.PI/2, -Math.PI/2, true); // draw the rounded cap
+    ctx.ellipse(length, 0, rx, ry, 0, -alpha, +alpha, false);
     ctx.closePath();
     ctx.fill();
   }
-
 
   ctx.globalCompositeOperation = prevComp;
   ctx.globalAlpha = prevAlpha;
