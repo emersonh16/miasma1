@@ -45,8 +45,11 @@ const S = {
   viewW: 0, viewH: 0,
   time: 0,
   // Fog phase (in tiles) — where the fog field is relative to world due to wind
-  fxTiles: 0, fyTiles: 0
+  fxTiles: 0, fyTiles: 0,
+  // perf stats (reset each update)
+  stats: { clearCalls: 0, regrow: 0, drawHoles: 0 }
 };
+
 
 
 // Cleared fog tiles in ABSOLUTE tile coords: `${tx},${ty}` -> timeCleared
@@ -70,6 +73,24 @@ export function init(viewW, viewH, centerWX = 0, centerWY = 0) {
 
 export function getTileSize() { return TILE_SIZE; }
 export function getOrigin()   { return { ox: S.ox, oy: S.oy }; }
+
+export function getStats() {
+  return {
+    time: S.time,
+    clearedMapSize: clearedMap.size,
+    lastRegrow: S.stats.regrow,
+    lastClearCalls: S.stats.clearCalls,
+    lastDrawHoles: S.stats.drawHoles,
+  };
+}
+export function getBudgets() {
+  return {
+    regrowBudget: REGROW_BUDGET,
+    maxHolesPerFrame: MAX_HOLES_PER_FRAME,
+    maxClearedCap: MAX_CLEARED_CAP,
+  };
+}
+
 
 // 0 = clear, 1 = fog
 export function sample(wx, wy) {
@@ -101,9 +122,10 @@ export function clearArea(wx, wy, r, _amt = 64) {
            const ftx = Math.floor(tx - S.fxTiles);
       const fty = Math.floor(ty - S.fyTiles);
       const k = key(ftx, fty);
-      if (!clearedMap.has(k)) {
+        if (!clearedMap.has(k)) {
         clearedMap.set(k, S.time);
         cleared++; budget--;
+        S.stats.clearCalls++; // PERF: count successful clears
       }
     }
   }
@@ -112,6 +134,11 @@ export function clearArea(wx, wy, r, _amt = 64) {
 
 export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, viewW = S.viewW, viewH = S.viewH) {
   S.time += dt;
+  // reset per-frame stats
+  S.stats.clearCalls = 0;
+  S.stats.regrow = 0;
+  S.stats.drawHoles = 0;
+
 
     // Advect fog by wind (world units → tiles)
   if (_worldMotion) {
@@ -175,6 +202,8 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
 
 
   for (const k of toGrow) clearedMap.delete(k);
+  S.stats.regrow = toGrow.length;
+
 
   // --- Aging & safety cap (keeps long runs stable) ---
   if (clearedMap.size) {
@@ -240,6 +269,7 @@ export function draw(ctx, cam, w, h) {
   }
 
   if (holes > 0) ctx.fill();
+  S.stats.drawHoles = holes;
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
 }

@@ -385,5 +385,43 @@ let y = geom.bFamily.y + geom.bFamily.h + 20;
   line(`Miasma: ox=${o.ox}, oy=${o.oy}`);
   line(`Drag: circle=dir, bar=speed, sliders=beam`);
 
+  // --- Perf meters (miasma + beam) ---
+  if (typeof miasma.getStats === "function" && typeof miasma.getBudgets === "function") {
+    const ms = miasma.getStats();
+    const mb = miasma.getBudgets();
+
+    const pct = (num, den) => den > 0 ? Math.min(1, num / den) : 0;
+
+    const regrowT = pct(ms.lastRegrow, mb.regrowBudget);
+    const holesT  = pct(ms.lastDrawHoles, mb.maxHolesPerFrame);
+    const mapT    = pct(ms.clearedMapSize, mb.maxClearedCap);
+
+    y += 6;
+    ctx.fillStyle = "#ccc"; ctx.fillText("Miasma Perf", geom.panel.x + 8, y); y += 14;
+    drawBar("Regrow", regrowT, `${ms.lastRegrow}/${mb.regrowBudget}`);
+    drawBar("Holes ",  holesT,  `${ms.lastDrawHoles}/${mb.maxHolesPerFrame}`);
+    drawBar("Map   ",  mapT,    `${ms.clearedMapSize}/${mb.maxClearedCap}`);
+  }
+
+  if (typeof beam.getStats === "function") {
+    const bs = beam.getStats();
+    y += 4;
+    ctx.fillStyle = "#ccc"; ctx.fillText("Beam Perf", geom.panel.x + 8, y); y += 14;
+    ctx.fillStyle = "#ddd";
+    ctx.fillText(`stamps: ${bs.stamps}  cleared: ${bs.clearedTiles}`, geom.panel.x + 8, y); y += 14;
+  }
+
   ctx.restore();
+
+  // helper lives inside drawDevHUD so it can use ctx/y/geom
+  function drawBar(label, t, right) {
+    const bx = geom.panel.x + 8, bw = 150, bh = 8;
+    ctx.fillStyle = "#888"; ctx.fillText(label, bx, y - 1);
+    const barX = bx + 54;
+    ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.fillRect(barX, y, bw, bh);
+    ctx.fillStyle = t < 0.8 ? "#7fff00" : (t < 1.0 ? "#ffbf00" : "#ff5555");
+    ctx.fillRect(barX, y, Math.round(bw * t), bh);
+    ctx.fillStyle = "#ddd"; ctx.fillText(right, barX + bw + 6, y - 1);
+    y += 14;
+  }
 }
