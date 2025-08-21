@@ -43,7 +43,11 @@ export const config = {
     // legacy/budget caps used by simple path as fallbacks
     maxEdgeFillPerTick: 3000,
     maxTilesUpdatedPerTick: 12000,
-    maxDrawTilesPerFrame: 20000
+    maxDrawTilesPerFrame: 20000,
+
+        // regrow scanning cap (entries visited per frame, not just regrown)
+    maxRegrowScanPerFrame: 4000,
+
 
   },
 
