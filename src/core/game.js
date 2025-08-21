@@ -4,11 +4,13 @@ import { makeCamera /*, follow */ } from "./camera.js";
 import * as miasma from "../systems/miasma/index.js";
 import * as beam from "../systems/beam/index.js";
 import { makePlayer, drawPlayer } from "../entities/player.js";
-import { clear, drawGrid } from "../render/draw.js";
+import { clear, drawGrid, drawRocks } from "../render/draw.js";
 import * as chunks from "../world/chunks.js";
 import * as wind from "../systems/wind/index.js";
 import { drawDevHUD } from "../render/devhud.js";
 import { drawHUD } from "../render/hud.js";
+import * as rocks from "../systems/rocks/index.js";
+
 
 // --- Canvases ---
 // Base/world canvas (already in DOM)
@@ -128,11 +130,9 @@ function frame(now) {
   const h = canvas.height / devicePixelRatio;
 
   // UPDATE — only when not paused/dead
-
   if (!state.paused && !state.dead) {
     const a = axis();
     const speed = config.player.speed;
-  
 
     cam.x += a.x * speed * dt;
     cam.y += a.y * speed * dt;
@@ -140,10 +140,10 @@ function frame(now) {
     player.x = cam.x;
     player.y = cam.y;
 
-
     // Stream chunks around camera center
     chunks.streamAround(cam.x, cam.y);
 
+    // Wind + miasma
     const windVel = wind.getVelocity({
       centerWX: cam.x,
       centerWY: cam.y,
@@ -156,30 +156,29 @@ function frame(now) {
       y: windVel.vyTilesPerSec * tileSize * dt
     };
 
-// Fog drift is driven ONLY by wind.
-if (config.flags.miasma) {
-  miasma.update(dt, cam.x, cam.y, windMotion, w, h);
-}
+    if (config.flags.miasma) {
+      miasma.update(dt, cam.x, cam.y, windMotion, w, h);
+    }
+
+    // Rocks: ensure clusters near view
+   rocks.ensureRocksForView(player.x, player.y);
 
 
-
-    // Ensure player health fields (defensive)
+    // Health management
     if (player.maxHealth == null) player.maxHealth = 100;
     if (!Number.isFinite(player.health)) player.health = player.maxHealth;
 
-    // Drain only when actually in fog (1 = fog):contentReference[oaicite:2]{index=2}
     if (config.flags.miasma && miasma.sample(player.x, player.y) === 1) {
       player.health -= dt * 5; // 5 HP/sec in fog
       if (player.health < 0) player.health = 0;
     }
 
-    // Death check → freeze updates, allow R to restart
     if (player.health <= 0) {
       state.dead = true;
     }
   }
 
-  // Aim beam at mouse (screen center = player) — still update for visuals
+  // Aim beam at mouse (screen center = player)
   const aimX = mouseX / devicePixelRatio - w / 2;
   const aimY = mouseY / devicePixelRatio - h / 2;
   beam.setAngle(Math.atan2(aimY, aimX));
@@ -191,22 +190,22 @@ if (config.flags.miasma) {
 
   // Base/world layer
   ctx.clearRect(0, 0, w, h);
-  clear(ctx, w, h, cam); // earth texture (world-anchored):contentReference[oaicite:3]{index=3}
+  clear(ctx, w, h, cam);
   ctx.save();
   ctx.translate(w / 2, h / 2);
   if (config.flags.grid) drawGrid(ctx, cam, w, h, 64);
+  rocks.draw(ctx, cam, w, h);       // <— draw rocks here
   beam.draw(ctx, cam, player);
   drawPlayer(ctx, cam, player);
   ctx.restore();
 
-// Fog overlay (top-most: fog, dev HUD, player HUD, overlays)
-fogCtx.clearRect(0, 0, w, h);
-if (config.flags.miasma) {
-  miasma.draw(fogCtx, cam, w, h); // paints purple fog + holes
-}
-drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
-drawHUD(fogCtx, player, w, h);
-
+  // Fog overlay
+  fogCtx.clearRect(0, 0, w, h);
+  if (config.flags.miasma) {
+    miasma.draw(fogCtx, cam, w, h);
+  }
+  drawDevHUD(fogCtx, cam, player, { x: mouseX, y: mouseY }, miasma, wind, w, h);
+  drawHUD(fogCtx, player, w, h);
 
   // Pause/Death overlays
   if (state.paused || state.dead) {

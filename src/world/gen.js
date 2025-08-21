@@ -23,13 +23,26 @@ export function generateChunk(cx, cy) {
   for (let i = 0; i < tiles.length; i++) tiles[i] = { id: 0, solid: false };
 
   const entities = [];
-  if (rand() < 0.2) {
-    const [wx, wy] = chunkToWorld(cx, cy, CHUNK_SIZE, TILE_SIZE);
-    entities.push({
-      type: "rock",
-      wx: wx + rand() * CHUNK_SIZE * TILE_SIZE,
-      wy: wy + rand() * CHUNK_SIZE * TILE_SIZE,
-    });
+
+  // Decide how many rock tiles to place in this chunk (0–3)
+  const rocksInChunk = (rand() < 0.6) ? Math.floor(rand() * 4) : 0;
+
+  // Chunk world origin
+  const [baseWX, baseWY] = chunkToWorld(cx, cy, CHUNK_SIZE, TILE_SIZE);
+
+  for (let i = 0; i < rocksInChunk; i++) {
+    // Pick a random tile in this chunk
+    const lx = Math.floor(rand() * CHUNK_SIZE);
+    const ly = Math.floor(rand() * CHUNK_SIZE);
+    const idx = ly * CHUNK_SIZE + lx;
+
+    // Mark that tile as solid rock
+    tiles[idx] = { id: 1, solid: true };
+
+    // Also drop a simple rock entity at that tile center (future visuals/collisions)
+    const wx = baseWX + lx * TILE_SIZE + TILE_SIZE * 0.5;
+    const wy = baseWY + ly * TILE_SIZE + TILE_SIZE * 0.5;
+    entities.push({ type: "rock", wx, wy });
   }
 
   return { tiles, entities };
