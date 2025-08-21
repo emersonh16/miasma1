@@ -2,6 +2,7 @@ import { iterEntitiesInAABB, TILE_SIZE, CHUNK_SIZE, getChunk } from "../world/st
 import { worldToTile, tileToChunk } from "../core/coords.js";
 import * as rocks from "../systems/rocks/index.js";
 
+<<<<<<< HEAD
 export function makeEnemy(x, y, kind = "slime") {
   return {
     type: "enemy",
@@ -60,7 +61,58 @@ export function updateEnemy(e, dt, player) {
       if (player.health < 0) player.health = 0;
     }
   }
+=======
+export function makeEnemy(wx, wy, kind = "slime") {
+  return { type: "enemy", kind, wx, wy, r: 12, hp: 3 };
 }
+
+export function updateEnemy(_e, _dt) {
+  // idle for now
+>>>>>>> 883ff51 (i got baaddies)
+}
+
+// --- LASER DAMAGE ONLY (simple & fast) ---
+function dot(ax, ay, bx, by) { return ax * bx + ay * by; }
+
+export function applyLaserDamage(player, angleRad, params, cam, w, h) {
+  const len = params.laserLength;
+  const halfCore = params.laserThickness * 0.5;
+
+  const ux = Math.cos(angleRad);
+  const uy = Math.sin(angleRad);
+
+  const ax = cam.x - w / 2;
+  const ay = cam.y - h / 2;
+  const bx = cam.x + w / 2;
+  const by = cam.y + h / 2;
+
+  for (const e of iterEntitiesInAABB(ax, ay, bx, by)) {
+    if (e.type !== "enemy") continue;
+
+    // vector player→enemy
+    const vx = e.wx - player.x;
+    const vy = e.wy - player.y;
+
+    // along-beam distance
+    const proj = dot(vx, vy, ux, uy);
+    if (proj < 0 || proj > len) continue;
+
+    // perpendicular distance to beam line (plus enemy radius)
+    const ex = vx - proj * ux;
+    const ey = vy - proj * uy;
+    const dist = Math.hypot(ex, ey);
+    const hit = dist <= (halfCore + (e.r || 12));
+
+    if (hit) {
+      e.hp = (e.hp ?? 3) - 1;
+      if (e.hp <= 0) {
+        e.type = "corpse"; // won’t draw / update anymore
+        console.log(`💥 SLAYED: ${e.kind} at (${e.wx.toFixed(0)}, ${e.wy.toFixed(0)})`);
+      }
+    }
+  }
+}
+
 
 export function drawEnemy(ctx, cam, e) {
   ctx.save();
