@@ -135,30 +135,11 @@ addEventListener("wheel", (e) => {
   const family = (typeof beam.getFamily === "function") ? beam.getFamily() : "discrete";
   const sign = (e.deltaY > 0) ? +1 : -1; // ↓ attack (toward laser), ↑ retreat (toward off)
 
-  if (family === "continuous") {
+   if (family === "continuous") {
     const nowMs = performance.now();
-    const idx = (typeof beam.getLevelIndex === "function") ? beam.getLevelIndex() : 0; // 0..16
+    const idx = (typeof beam.getLevelIndex === "function") ? beam.getLevelIndex() : 0; // 0..4
 
-    // From OFF: first DOWN → min-alive (level 1)
-    if (idx === 0 && sign > 0) {
-      if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(1);
-      e.preventDefault();
-      return;
-    }
-
-    // UP near OFF: require extra UP to go 0 (double-tap window)
-    if (sign < 0 && idx === 1) {
-      if (!wheelCtrl.offArmDeadline || nowMs > wheelCtrl.offArmDeadline) {
-        wheelCtrl.offArmDeadline = nowMs + OFF_DBLCLICK_MS; // arm
-      } else {
-        if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(0); // commit off
-        wheelCtrl.offArmDeadline = 0;
-      }
-      e.preventDefault();
-      return;
-    }
-
-     // --- 4-state stepper: one notch = one level (0..4) ---
+    // 4-state stepper: one notch = one level (0→1→2→3→4 and back)
     const steps = 1;
     const next = Math.max(0, Math.min(4, idx + (sign > 0 ? +steps : -steps)));
 
@@ -166,8 +147,8 @@ addEventListener("wheel", (e) => {
     wheelCtrl.lastWheelMs = nowMs;
     e.preventDefault();
     return;
-
   }
+
 
   // legacy discrete family behavior (unchanged)
   wheelCtrl.discAcc += e.deltaY;

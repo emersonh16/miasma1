@@ -174,60 +174,47 @@ function sampleContinuousEnvelope(origin, dir) {
     return circles;
   }
 
-   // Blend 2→3 = bubble→wide cone (no “tube” on rollback)
+  // Blend 2→3 = bubble → wide cone (pure cone silhouette; no tube)
   if (idxF <= 3.0) {
     const t = idxF - 2.0; // 0..1
-    const halfAdeg = 32;               // wide cone target
-    const halfA = (halfAdeg * Math.PI) / 180;
-    const len   = BeamParams.coneLength;
-    const step  = Math.max(T * 1.0, 6);
+    // half-angle eases from a bit wider to your wide-cone target
+    const halfAdeg0 = 40, halfAdeg1 = 32;
+    const halfAdeg  = halfAdeg0 + (halfAdeg1 - halfAdeg0) * t;
+    const halfA     = (halfAdeg * Math.PI) / 180;
 
-    const rrBubble = BeamParams.bubbleRadius;
+    const len  = BeamParams.coneLength;
+    const step = Math.max(T * 1.0, 6);
 
-    // Keep a center bubble that shrinks away as cone grows
-    const shrink = 1 - Math.pow(t, 0.85); // fast at first, then eases out
-    if (shrink > 0.001) {
-      circles.push({ x: origin.x, y: origin.y, r: rrBubble * shrink });
+    // grow cone length from 0 → len; avoids a fat rounded tube
+    const L = Math.max(step, len * t);
+    for (let d = step; d <= L; d += step) {
+      const cx = origin.x + ux * d;
+      const cy = origin.y + uy * d;
+      const rr = Math.max(2, Math.tan(halfA) * d);
+      circles.push({ x: cx, y: cy, r: rr });
     }
-
-    // Grow cone coverage length from 0 → len; avoid full-length tube at small t
-    const L = Math.max(0, len * t);
-    if (L > step * 0.5) {
-      for (let d = step; d <= L; d += step) {
-        const cx = origin.x + ux * d;
-        const cy = origin.y + uy * d;
-
-        // Taper radius from bubble at base → cone at current distance
-        const rrCone = Math.max(4, Math.tan(halfA) * d);
-        const along  = d / L;                          // 0 at base → 1 at current tip
-        const rr     = rrBubble * (1 - along) + rrCone * along;
-
-        circles.push({ x: cx, y: cy, r: rr });
-      }
-      // Ensure a tip at L for clean silhouette
-      const tipCone = Math.max(4, Math.tan(halfA) * L);
-      circles.push({ x: origin.x + ux * L, y: origin.y + uy * L, r: tipCone });
-    }
-
+    // tip at current L for a clean cone cap
+    circles.push({ x: origin.x + ux * L, y: origin.y + uy * L, r: Math.max(2, Math.tan(halfA) * L) });
     return circles;
   }
 
-
-  // Blend 3→4 = wide cone→laser
+  // Blend 3→4 = cone narrows smoothly to laser
   {
     const t = idxF - 3.0; // 0..1
-    const halfStart = 32, halfEnd = 0.5;
-    const halfAdeg  = halfStart + (halfEnd - halfStart) * t;
+    const halfAdeg0 = 32, halfAdeg1 = 0.5;
+    const halfAdeg  = halfAdeg0 + (halfAdeg1 - halfAdeg0) * t;
     const halfA     = (halfAdeg * Math.PI) / 180;
 
-    const len   = BeamParams.coneLength;
-    const step  = Math.max(T * 1.0, 6);
+    const len  = BeamParams.coneLength;
+    const step = Math.max(T * 1.0, 6);
+
     for (let d = step; d <= len; d += step) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
       const rr = Math.max(2, Math.tan(halfA) * d);
       circles.push({ x: cx, y: cy, r: rr });
     }
+    circles.push({ x: origin.x + ux * len, y: origin.y + uy * len, r: Math.max(2, Math.tan(halfA) * len) });
     return circles;
   }
 
