@@ -515,8 +515,8 @@ const SHIM = (() => {
     enabled: cfg.enabled ?? true,
     alpha:   cfg.alpha   ?? 0.18,  // overall shimmer strength
     layers: [
-      { size: cfg.size0 ?? 64, speed: cfg.speed0 ?? 0.0, parallax: cfg.parallax0 ?? 0.55 },
-      { size: cfg.size1 ?? 96, speed: cfg.speed1 ?? 0.0, parallax: cfg.parallax1 ?? 0.85 },
+      { size: cfg.size0 ?? 64, speed: cfg.speed0 ?? 0.0, parallax: cfg.parallax0 ?? 0.64 },
+      { size: cfg.size1 ??128, speed: cfg.speed1 ?? 0.0, parallax: cfg.parallax1 ?? 0.128 },
     ],
   };
 })();
@@ -579,8 +579,11 @@ function drawShimmer(ctx, cam, w, h) {
     // Anchor pattern phase to the CAMERA CENTER in WORLD space.
     // IMPORTANT: draw() has already translated the ctx by (-cam.x + w/2, -cam.y + h/2),
     // so here we stay in world coords (no extra screen-center translation).
-    const phaseX = -Math.floor(mod(cam.x + windPXx * par + driftX, size));
-    const phaseY = -Math.floor(mod(cam.y + windPXy * par + driftY, size));
+ // Snap to 4px increments
+const snap = 4;
+const phaseX = -Math.floor(mod(cam.x + windPXx * par + driftX, size) / snap) * snap;
+const phaseY = -Math.floor(mod(cam.y + windPXy * par + driftY, size) / snap) * snap;
+
 
     ctx.save();
     ctx.globalAlpha = SHIM.alpha * (1 + 0.15 * Math.sin(t * (0.7 + i * 0.4)));
