@@ -7,7 +7,7 @@ const FOG_T = () => miasma.getTileSize();
 
 // Discrete-only modes, ordered for wheel stepping
 const MODES = ["off", "bubbleMin", "bubbleMax", "cone", "laser"];
-const state = { modeIndex: 1, angle: 0 }; // start near bubbleMin
+const state = { modeIndex: 1, angle: 0, level: 1 }; // start near bubbleMin
 
 export function getMode() { return MODES[state.modeIndex]; }
 export function setMode(m) {
@@ -19,21 +19,45 @@ export function modeDown(steps = 1) { state.modeIndex = Math.max(0, state.modeIn
 export function setAngle(rad) { state.angle = rad || 0; }
 export function getAngle()   { return state.angle; }
 
-// ---- Live-tunable beam params (pixels in world space) ----
-const CONE_TOTAL_MIN = 4;
-const CONE_TOTAL_MAX = 64;
-const CONE_HALF_MIN  = CONE_TOTAL_MIN * 0.5;
-const CONE_HALF_MAX  = CONE_TOTAL_MAX * 0.5;
-
-const BeamParams = {
-  bubbleMinRadius: 48,     // px → 96px diameter
-  bubbleMaxRadius: 128,    // px → 256px diameter
-  laserLength: 512,        // px (longer default)
-  laserThickness: 12,      // px (thicker default)
-  coneLength: 224,         // px
-  coneHalfAngleDeg: 32,    // deg (half-angle; default = 64° total)
-  budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
+// ---- Beam level params ----
+const LEVEL_MIN = 1;
+const LEVEL_MAX = 16;
+const BASE = {
+  bubbleMin: 32,
+  bubbleMax: 96,
+  laserLen: 224,
+  laserThick: 4,
+  coneLen: 128,
 };
+const MAX = {
+  bubbleMin: 112,
+  bubbleMax: 336,
+  laserLen: 784,
+  laserThick: 14,
+  coneLen: 448,
+};
+const ANGLE_TOTAL_DEG = 64;
+const BUDGET_PER_STAMP = 160;
+
+export function setLevel(n = LEVEL_MIN) {
+  state.level = Math.max(LEVEL_MIN, Math.min(LEVEL_MAX, Math.round(n)));
+}
+export function levelUp(steps = 1)   { setLevel(state.level + steps); }
+export function levelDown(steps = 1) { setLevel(state.level - steps); }
+export function getLevel() { return state.level; }
+
+export function getParams() {
+  const t = (state.level - 1) / 15;
+  const lerp = (a, b) => a + (b - a) * t;
+  return {
+    bubbleMinRadius: lerp(BASE.bubbleMin, MAX.bubbleMin),
+    bubbleMaxRadius: lerp(BASE.bubbleMax, MAX.bubbleMax),
+    laserLength:     lerp(BASE.laserLen,  MAX.laserLen),
+    laserThickness:  lerp(BASE.laserThick,MAX.laserThick),
+    coneLength:      lerp(BASE.coneLen,   MAX.coneLen),
+    coneAngleTotalDeg: ANGLE_TOTAL_DEG,
+  };
+}
 
 // perf stats (updated each raycast)
 const BeamStats = { stamps: 0, clearedTiles: 0 };
@@ -57,33 +81,12 @@ function clearCone(origin, dir, length, halfAngle, budget) {
   return cleared;
 }
 
-function clampConeHalf(deg) {
-  if (!Number.isFinite(deg)) return BeamParams.coneHalfAngleDeg;
-  return Math.max(CONE_HALF_MIN, Math.min(CONE_HALF_MAX, deg));
-}
-function clampConeTotal(totalDeg) {
-  if (!Number.isFinite(totalDeg)) return BeamParams.coneHalfAngleDeg * 2;
-  const t = Math.max(CONE_TOTAL_MIN, Math.min(CONE_TOTAL_MAX, totalDeg));
-  return t;
-}
-
-export function setParams(patch = {}) {
-  const p = { ...patch };
-  // lock angle: ignore any attempts to change it
-  delete p.coneAngleTotalDeg;
-  delete p.coneHalfAngleDeg;
-  Object.assign(BeamParams, p);
-}
-export function getParams() {
-  // expose fixed total angle for HUD/readback
-  return { ...BeamParams, coneAngleTotalDeg: 64 };
-}
-
 
 // ---- hit test & clearing (hitbox matches visuals) ----
 export function raycast(origin, dir) {
   const mode = MODES[state.modeIndex];
-  const MAX_PER_STEP = BeamParams.budgetPerStamp;
+  const BP = getParams();
+  const MAX_PER_STEP = BUDGET_PER_STAMP;
   const T = miasma.getTileSize();
   const TILE_PAD = T * 0.15;
   let clearedFog = 0;
@@ -93,11 +96,11 @@ export function raycast(origin, dir) {
   if (mode === "off") return { hits: [], clearedFog };
 
   if (mode === "laser") {
-    const len = BeamParams.laserLength;
+    const len = BP.laserLength;
     const ux = Math.cos(dir),  uy = Math.sin(dir); // forward
     const nx = -Math.sin(dir), ny = Math.cos(dir); // normal
 
-    const rCore = Math.max(2, BeamParams.laserThickness * 0.5 + TILE_PAD);
+    const rCore = Math.max(2, BP.laserThickness * 0.5 + TILE_PAD);
     const strideCore = Math.max(T * 0.4, rCore * 0.75);
 
     const offHalo1 = rCore + Math.max(T * 0.5, 2);
@@ -206,9 +209,9 @@ export function raycast(origin, dir) {
     return { hits: [], clearedFog };
   }
 
-    if (mode === "cone") {
-    const len   = BeamParams.coneLength;
-    const halfA = (32 * Math.PI) / 180; // 64° total, hard-locked
+  if (mode === "cone") {
+    const len   = BP.coneLength;
+    const halfA = (BP.coneAngleTotalDeg * 0.5 * Math.PI) / 180;
     const ux = Math.cos(dir), uy = Math.sin(dir);
 
     const step = Math.max(T * 0.9, 6);
@@ -232,7 +235,7 @@ export function raycast(origin, dir) {
   }
 
   if (mode === "bubbleMin" || mode === "bubbleMax") {
-    const r0 = mode === "bubbleMin" ? BeamParams.bubbleMinRadius : BeamParams.bubbleMaxRadius;
+    const r0 = mode === "bubbleMin" ? BP.bubbleMinRadius : BP.bubbleMaxRadius;
     const r = r0 + TILE_PAD;
     const Tz = miasma.getTileSize();
     const cx = Math.floor(origin.x / Tz) * Tz + Tz * 0.5;
@@ -250,6 +253,7 @@ export function raycast(origin, dir) {
 // ---- visuals ----
 export function draw(ctx, cam, player) {
   const mode = MODES[state.modeIndex];
+  const BP = getParams();
 
   ctx.save();
   ctx.translate(-cam.x + player.x, -cam.y + player.y);
@@ -269,7 +273,7 @@ export function draw(ctx, cam, player) {
   }
 
   if (mode === "bubbleMin" || mode === "bubbleMax") {
-    const r = (mode === "bubbleMin") ? BeamParams.bubbleMinRadius : BeamParams.bubbleMaxRadius;
+    const r = (mode === "bubbleMin") ? BP.bubbleMinRadius : BP.bubbleMaxRadius;
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
     g.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`);
     g.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
@@ -278,8 +282,8 @@ export function draw(ctx, cam, player) {
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
   } else if (mode === "laser") {
-    const len = BeamParams.laserLength;
-    const thick = BeamParams.laserThickness;
+    const len = BP.laserLength;
+    const thick = BP.laserThickness;
     ctx.lineCap = "round";
 
     ctx.strokeStyle = `rgba(${LIGHT_RGB},0.25)`;
@@ -301,8 +305,8 @@ export function draw(ctx, cam, player) {
     ctx.fillStyle = tip;
     ctx.beginPath(); ctx.arc(len, 0, tipR * 2, 0, Math.PI * 2); ctx.fill();
   } else if (mode === "cone") {
-    const length = BeamParams.coneLength;
-    const halfAngle = (32 * Math.PI) / 180; // 64° total, hard-locked
+    const length = BP.coneLength;
+    const halfAngle = (BP.coneAngleTotalDeg * 0.5 * Math.PI) / 180;
 
 
     const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, length);
