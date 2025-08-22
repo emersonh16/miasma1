@@ -9,6 +9,7 @@ import * as chunks from "../world/chunks.js";
 import * as wind from "../systems/wind/index.js";
 import { drawDevHUD } from "../render/devhud.js";
 import { drawHUD } from "../render/hud.js";
+import { setRandomBiome } from "../world/biomes/index.js";
 import * as rocks from "../systems/rocks/index.js";
 import { drawEnemies, updateEnemy } from "../entities/enemy.js";
 import { iterEntitiesInAABB } from "../world/store.js";
@@ -63,6 +64,7 @@ function resize() {
 }
 addEventListener("resize", resize);
 resize();
+setRandomBiome();
 
 // --- Wind (debug default) ---
 wind.clearGears();
@@ -91,19 +93,19 @@ addEventListener("wheel", (e) => {
 }, { passive: true });
 
 
-// --- Game state (pause/death) ---
+
 const state = { paused: false, dead: false };
 
-// Simple restart (hard reset keeps miasma simple for now)
+
 function restart() {
   try { location.reload(); } catch (_) {
-    // Fallback soft reset
     state.paused = false; state.dead = false;
     player.health = player.maxHealth ?? 100;
     cam.x = cam.y = 0;
     const dpr = devicePixelRatio || 1;
     const w = canvas.width / dpr, h = canvas.height / dpr;
-    miasma.init(w, h, cam.x, cam.y); // re-center fog:contentReference[oaicite:1]{index=1}
+    setRandomBiome();
+    miasma.init(w, h, cam.x, cam.y); 
   }
 }
 

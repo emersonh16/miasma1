@@ -1,5 +1,7 @@
 // src/render/draw.js
 import { config } from "../core/config.js";
+import { getGroundColor, getBiomeId } from "../world/biomes/index.js";
+import { drawIceBiome } from "../world/biomes/ice.js";
 import { getTile, TILE_SIZE as WORLD_T } from "../world/store.js";
 
 
@@ -63,18 +65,20 @@ function ensureEarthPattern(ctx) {
 export function clear(ctx, w, h, cam) {
   ctx.clearRect(0, 0, w, h);
 
-  // World anchored: offset pattern by camera position
-  const pat = ensureEarthPattern(ctx);
-const ox = -Math.floor(mod(cam?.x ?? 0, earthSize));
-const oy = -Math.floor(mod(cam?.y ?? 0, earthSize));
+  // Route by active biome. "ice" uses the preserved pattern; others = flat color fill.
+  const id = getBiomeId();
+  if (id === "ice") {
+    drawIceBiome(ctx, cam, w, h);
+    return;
+  }
 
+  // Flat color fill for simple MVP biomes
   ctx.save();
-  ctx.translate(ox, oy);
-  ctx.fillStyle = pat;
-  // Pad fill to hide seams when translating
-  ctx.fillRect(-earthSize, -earthSize, w + earthSize * 2, h + earthSize * 2);
+  ctx.fillStyle = getGroundColor();
+  ctx.fillRect(0, 0, w, h);
   ctx.restore();
 }
+
 
 /**
  * World‑aligned grid that scrolls under the player.
