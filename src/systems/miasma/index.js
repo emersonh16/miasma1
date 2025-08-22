@@ -360,39 +360,44 @@ function ensurePattern(ctx, size) {
 }
 
 
-
-/** Draw shimmer over fog body; drawn BEFORE holes so holes punch both */
-function drawShimmer(ctx, pxLeft, pxTop, pxWidth, pxHeight) {
+/** Draw shimmer over fog body; centered on viewport/player, drawn BEFORE holes */
+function drawShimmer(ctx, cam, w, h) {
   if (!SHIM.enabled || SHIM.alpha <= 0) return;
 
-  // Convert wind phase (tiles) to pixels for parallax anchor
+  // Wind phase in pixels (from update())
   const windPXx = S.fxTiles * TILE_SIZE;
   const windPXy = S.fyTiles * TILE_SIZE;
-
   const t = S.time;
 
   for (let i = 0; i < SHIM.layers.length; i++) {
     const L = SHIM.layers[i];
     const size = Math.max(16, L.size | 0);
-    const par = Math.max(0, Math.min(1, Number(L.parallax) || 0.5));
-    const pat = ensurePattern(ctx, size);
+    const par  = Math.max(0, Math.min(1, Number(L.parallax) || 0.5));
+    const pat  = ensurePattern(ctx, size);
 
-    // Subtle extra drift (independent of wind) to keep life when calm
+    // Subtle extra drift (still cheap) when wind is calm
     const driftX = (L.speed || 0) * t * 0.5;
     const driftY = (L.speed || 0) * t * 0.35;
 
-    // Offset so pattern is WORLD‑aligned + advected downwind with parallax
-    const ox = -Math.floor(mod(pxLeft  + windPXx * par + driftX, size));
-    const oy = -Math.floor(mod(pxTop   + windPXy * par + driftY, size));
+    // Anchor pattern phase to the CAMERA CENTER in WORLD space.
+    // IMPORTANT: draw() has already translated the ctx by (-cam.x + w/2, -cam.y + h/2),
+    // so here we stay in world coords (no extra screen-center translation).
+    const phaseX = -Math.floor(mod(cam.x + windPXx * par + driftX, size));
+    const phaseY = -Math.floor(mod(cam.y + windPXy * par + driftY, size));
 
     ctx.save();
     ctx.globalAlpha = SHIM.alpha * (1 + 0.15 * Math.sin(t * (0.7 + i * 0.4)));
-    ctx.translate(ox, oy);
+    ctx.translate(phaseX, phaseY);
     ctx.fillStyle = pat;
-    ctx.fillRect(-size, -size, pxWidth + size * 2, pxHeight + size * 2);
+
+    // Cover the full viewport area in WORLD coordinates
+    // (Because of the world-space translate in draw(), this maps to screen with the player centered)
+    ctx.fillRect(cam.x - w / 2 - size, cam.y - h / 2 - size, w + size * 2, h + size * 2);
     ctx.restore();
   }
 }
+
+
 
 export function draw(ctx, cam, w, h) {
   // Enter world space (player centered)
@@ -417,9 +422,9 @@ export function draw(ctx, cam, w, h) {
   ctx.fillStyle = FOG_COLOR;
   ctx.fillRect(pxLeft, pxTop, pxWidth, pxHeight);
 
-  // 1b) Optional shimmer layer (only if helper exists and is enabled)
+  // 1b) Optional shimmer layer (centered on viewport)
   if (typeof drawShimmer === "function") {
-    drawShimmer(ctx, pxLeft, pxTop, pxWidth, pxHeight);
+    drawShimmer(ctx, cam, w, h);
   }
 
   // 2) Punch visible holes — merge contiguous runs per row (RLE)
