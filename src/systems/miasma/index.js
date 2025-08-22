@@ -65,38 +65,38 @@ function spawnTwinkle(wx, wy, dirX = NaN, dirY = NaN, intensity = 0) {
   const isWisp = (Math.random() < 0.2);
   const size = isWisp ? _rand(TW.wispSize[0], TW.wispSize[1])
                       : _rand(TW.moteSize[0], TW.moteSize[1]);
-  const life = isWisp ? _rand(TW.wispLife[0], TW.wispLife[1])
-                      : _rand(TW.moteLife[0], TW.moteLife[1]);
+  let life = isWisp ? _rand(TW.wispLife[0], TW.wispLife[1])
+                    : _rand(TW.moteLife[0], TW.moteLife[1]);
 
   const i = _tw.cursor;
   _tw.cursor = (_tw.cursor + 1) % TW.max;
 
-  _tw.x[i] = wx + _rand(-0.5, 0.5);
-  _tw.y[i] = wy + _rand(-0.5, 0.5);
+  _tw.x[i] = wx;
+  _tw.y[i] = wy;
 
-  // Base speed shoots INTO the miasma along the provided direction (if any),
-  // scaled by beam intensity. Falls back to jitter-only if no dir provided.
+  // --- SPARK PHYSICS: strong outward burst with angular spread ---
   const hasDir = Number.isFinite(dirX) && Number.isFinite(dirY);
-  const baseSpeed = 40 + 160 * Math.max(0, Math.min(1, intensity)); // 40..200 px/s
-  const jx = _rand(-TW.jitter, TW.jitter);
-  const jy = _rand(-TW.jitter, TW.jitter);
+  // base vector = beam direction if provided, else random
+  let baseAngle = hasDir ? Math.atan2(dirY, dirX) : Math.random() * Math.PI * 2;
+  // add small cone spread so sparks spray out
+  const spread = (hasDir ? 0.45 : Math.PI); // ~26° around beam; full circle if no dir
+  const ang = baseAngle + _rand(-spread * 0.5, spread * 0.5);
 
-  if (hasDir) {
-    // normalize dir just in case
-    const len = Math.hypot(dirX, dirY) || 1;
-    const ux = dirX / len, uy = dirY / len;
-    _tw.vx[i] = ux * baseSpeed + jx * 0.35; // mostly outward, a little wiggle
-    _tw.vy[i] = uy * baseSpeed + jy * 0.35;
-  } else {
-    _tw.vx[i] = jx;
-    _tw.vy[i] = jy;
-  }
+  // speed scales hard with intensity (laser -> much faster)
+  const t = Math.max(0, Math.min(1, intensity));
+  const speed = 120 + 260 * t + _rand(-20, 20); // 120..380 px/s (+/- jitter)
+  _tw.vx[i] = Math.cos(ang) * speed;
+  _tw.vy[i] = Math.sin(ang) * speed;
+
+  // shorter life for crackly sparks
+  life *= hasDir ? 0.6 : 0.8;
 
   _tw.size[i] = size;
   _tw.age[i] = 0;
   _tw.life[i] = life;
   _tw.use[i] = 1;
 }
+
 
 
 function updateTwinkles(dt) {
@@ -281,37 +281,31 @@ export function clearArea(wx, wy, r, _amt = 64) {
       const centerY = (ty + 0.5) * TILE_SIZE;
       const dxw = centerX - wx, dyw = centerY - wy;
       if ((dxw * dxw + dyw * dyw) > r2) continue;
-   const ftx = Math.floor(tx - S.fxTiles);
-const fty = Math.floor(ty - S.fyTiles);
-const k = key(ftx, fty);
-if (!clearedMap.has(k)) {
-  clearedMap.set(k, S.time);
-  cleared++; budget--;
-  S.stats.clearCalls++;
-  checkFrontier(ftx, fty);
-  updateNeighbors(ftx, fty);
-const beamBoost = getBeamIntensity(); // 0..1 (laser strongest)
+      const ftx = Math.floor(tx - S.fxTiles);
+      const fty = Math.floor(ty - S.fyTiles);
+      const k = key(ftx, fty);
+      if (!clearedMap.has(k)) {
+        clearedMap.set(k, S.time);
+        cleared++; budget--;
+        S.stats.clearCalls++;
+        checkFrontier(ftx, fty);
+        updateNeighbors(ftx, fty);
 
-// Spray AWAY from the light source, INTO the miasma, using beam angle.
-const a = (typeof beam.getAngle === "function") ? beam.getAngle() : 0;
-const dx = Math.cos(a);
-const dy = Math.sin(a);
-
-if (Math.random() < TW.spawnChancePerCleared * (1 + beamBoost)) {
-  // pass direction + intensity so motes shoot outward into the fog
-  spawnTwinkle(centerX, centerY, dx, dy, beamBoost);
-}
-
-
+        // Spray AWAY from the light source, INTO the miasma (along beam)
+        const beamBoost = getBeamIntensity(); // 0..1 (laser strongest)
+        const a = (typeof beam.getAngle === "function") ? beam.getAngle() : 0;
+        const dirx = Math.cos(a), diry = Math.sin(a);
+        if (Math.random() < TW.spawnChancePerCleared * (1 + beamBoost)) {
+          spawnTwinkle(centerX, centerY, dirx, diry, beamBoost);
+        }
       }
-
-
     }
   }
   return cleared;
 }
 
 export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, viewW = S.viewW, viewH = S.viewH) {
+
   S.time += dt;
 
   // reset per-frame stats
