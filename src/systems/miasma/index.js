@@ -15,7 +15,7 @@ const PAD = MC.regrowPad ?? (MC.marginTiles ?? 6);
 
 // Edge‑rim glow (PR2)
 const RIM_TTL_S    = (MC.rimTTL ?? 0.60);              // ↑ longer so it’s obvious
-const RIM_COLOR    = (MC.rimColor ?? "#ffffff");       // ↑ bright white to confirm it works
+const RIM_COLOR    = (MC.rimColor ?? "rgba(234, 149, 255, 1)");       // ↑ bright white to confirm it works
 const RIM_WIDTH    = (MC.rimWidth ?? 1.5);             // ↑ slightly thicker
 const RIM_MAX_PERF = (MC.rimMaxPerFrame ?? 3000);      // cap strokes per frame
 
