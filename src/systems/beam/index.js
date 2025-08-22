@@ -46,16 +46,16 @@ const LEVEL_MAX = 16;
 const BASE = {
   bubbleMin: 32,
   bubbleMax: 64,    // smaller at level 1
-  laserLen: 224,
+  laserLen: 256,
   laserThick: 4,
-  coneLen: 160,     // bigger at level 1
+  coneLen: 128,     // bigger at level 1
 };
 const MAX = {
   bubbleMin: 112,
   bubbleMax: 288,   // smaller at level 16
-  laserLen: 784,
-  laserThick: 14,
-  coneLen: 480,     // bigger at level 16
+  laserLen: 896,
+  laserThick: 16,
+  coneLen: 384,     // bigger at level 16
 };
 
 
