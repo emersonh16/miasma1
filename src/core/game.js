@@ -137,11 +137,11 @@ addEventListener("wheel", (e) => {
 
   if (family === "continuous") {
     const nowMs = performance.now();
-    const idx = (typeof beam.getLevelIndex === "function") ? beam.getLevelIndex() : 0; // 0..3
+    const idx = (typeof beam.getLevelIndex === "function") ? beam.getLevelIndex() : 0; // 0..4
 
-    // 3 transitions (4 states): 0=OFF → 1=MAX BUBBLE → 2=CONE → 3=LASER
+    // 5 states: 0=OFF → 1=MIN BUBBLE → 2=MAX BUBBLE → 3=CONE → 4=LASER
     const steps = 1;
-    const next = Math.max(0, Math.min(3, idx + (sign > 0 ? +steps : -steps)));
+    const next = Math.max(0, Math.min(4, idx + (sign > 0 ? +steps : -steps)));
 
     if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(next);
     wheelCtrl.lastWheelMs = nowMs;

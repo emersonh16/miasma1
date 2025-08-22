@@ -42,15 +42,15 @@ const BeamParams = {
   budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
 };
 
-// 4 continuous states: 0=OFF, 1=MAX BUBBLE, 2=CONE, 3=LASER
+// 5 continuous states: 0=OFF, 1=MIN BUBBLE, 2=MAX BUBBLE, 3=CONE, 4=LASER
 const state = { modeIndex: 1, angle: 0, family: "continuous", levelIndex: 0 };
 
 // --- Smooth display index (float) that eases toward levelIndex ---
-let _smoothIdx = 0;                 // float 0..3
+let _smoothIdx = 0;                 // float 0..4
 let _lastSmoothMs = performance.now();
 const SMOOTH_HZ = 16;
 
-// Exponential ease toward the integer levelIndex; returns float 0..3
+// Exponential ease toward the integer levelIndex; returns float 0..4
 function _advanceSmooth() {
   const now = performance.now();
   const dt = Math.max(0, (now - _lastSmoothMs) / 1000);
@@ -61,12 +61,12 @@ function _advanceSmooth() {
   return _smoothIdx;
 }
 
-export function getLevelIndex() { return state.levelIndex | 0; }          // int 0..3
-export function setLevelIndex(i) { state.levelIndex = Math.max(0, Math.min(3, (i|0))); }
+export function getLevelIndex() { return state.levelIndex | 0; }          // int 0..4
+export function setLevelIndex(i) { state.levelIndex = Math.max(0, Math.min(4, (i|0))); }
 
 export function getLevel() {
-  // normalized (0..1) if a UI wants it (0..3 mapped to 0..1)
-  return (state.levelIndex | 0) / 3;
+  // normalized (0..1) if a UI wants it (0..4 mapped to 0..1)
+  return (state.levelIndex | 0) / 4;
 }
 
 
@@ -137,30 +137,37 @@ function sampleContinuousEnvelope(origin, dir) {
   const ux = Math.cos(dir), uy = Math.sin(dir);
   const circles = [];
 
-  // use smoothed float index for softer transitions
-  const idxF = _advanceSmooth();     // float 0..3
+  // float 0..4 easing toward the integer level
+  const idxF = _advanceSmooth();
 
   // 0 = OFF
   if (idxF <= 0.001) return circles;
 
-  // 0→1 : grow bubble up to MAX BUBBLE
+  // 1 = MIN BUBBLE (fixed tight radius)
   if (idxF <= 1.0) {
-    const t = idxF - 0.0; // 0..1
-    const r = Math.max(2, BeamParams.bubbleRadius * t);
+    const rMin = 16; // small, readable hotspot
+    circles.push({ x: origin.x, y: origin.y, r: rMin });
+    return circles;
+  }
+
+  // 1→2 : interpolate MIN→MAX BUBBLE
+  if (idxF <= 2.0) {
+    const t = idxF - 1.0; // 0..1
+    const rMin = 16, rMax = BeamParams.bubbleRadius;
+    const r = rMin + (rMax - rMin) * t;
     circles.push({ x: origin.x, y: origin.y, r });
     return circles;
   }
 
-  // 1→2 : blend MAX BUBBLE → CONE
-  if (idxF <= 2.0) {
-    const t = idxF - 1.0; // 0..1
-    // shrink bubble while extending a cone
+  // 2→3 : MAX BUBBLE → CONE (shrink bubble while growing a wide cone)
+  if (idxF <= 3.0) {
+    const t = idxF - 2.0; // 0..1
     const rBubble = BeamParams.bubbleRadius * (1.0 - t);
     if (rBubble > 2) circles.push({ x: origin.x, y: origin.y, r: rBubble });
 
-    const halfAdeg = 32; // wide cone target
+    const halfAdeg = 32; // wide-cone target
     const halfA = (halfAdeg * Math.PI) / 180;
-    const len  = BeamParams.coneLength * t;
+    const len  = Math.max(T, BeamParams.coneLength * t);
     const step = Math.max(T * 1.0, 6);
     for (let d = step; d <= len; d += step) {
       const cx = origin.x + ux * d;
@@ -171,9 +178,9 @@ function sampleContinuousEnvelope(origin, dir) {
     return circles;
   }
 
-  // 2→3 : CONE → LASER (narrowing cone)
+  // 3→4 : CONE → LASER (narrow the cone down)
   {
-    const t = idxF - 2.0; // 0..1
+    const t = idxF - 3.0; // 0..1
     const halfAdeg0 = 32, halfAdeg1 = 0.5;
     const halfAdeg  = halfAdeg0 + (halfAdeg1 - halfAdeg0) * t;
     const halfA     = (halfAdeg * Math.PI) / 180;
@@ -189,7 +196,6 @@ function sampleContinuousEnvelope(origin, dir) {
     return circles;
   }
 }
-
 
 
 
