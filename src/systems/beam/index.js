@@ -373,11 +373,11 @@ export function draw(ctx, cam, player) {
 
   const LIGHT_RGB = "255,240,0";
 
-  // bubbles (both can blend)
+  // --- Bubble layers ---
   if (W.bubbleMin > 0) {
     const r = BP.bubbleMinRadius;
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-    g.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.30 * W.bubbleMin})`);
+    g.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.25 * W.bubbleMin})`);
     g.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
@@ -385,13 +385,39 @@ export function draw(ctx, cam, player) {
   if (W.bubbleMax > 0) {
     const r = BP.bubbleMaxRadius;
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-    g.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.30 * W.bubbleMax})`);
+    g.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.25 * W.bubbleMax})`);
     g.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
   }
 
-  // laser
+  // --- Cone focusing toward laser ---
+  if (W.cone > 0 || W.laser > 0) {
+    const length = BP.coneLength * (1 - W.laser) + BP.laserLength * W.laser;
+    const halfAngle = ((BP.coneAngleTotalDeg * 0.5) * (1 - W.laser)) * Math.PI / 180;
+
+    // body
+    const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, length);
+    bodyGrad.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.15 * (W.cone + W.laser)})`);
+    bodyGrad.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
+    ctx.fillStyle = bodyGrad;
+
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, length, -halfAngle, +halfAngle, false);
+    ctx.closePath();
+    ctx.fill();
+
+    // tip highlight
+    const rTip = Math.max(6, Math.tan(Math.max(halfAngle, 0.01)) * length);
+    const tip = ctx.createRadialGradient(length, 0, 0, length, 0, rTip);
+    tip.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.3 * (W.cone + W.laser)})`);
+    tip.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
+    ctx.fillStyle = tip;
+    ctx.beginPath(); ctx.arc(length, 0, rTip, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // --- Laser core on top ---
   if (W.laser > 0) {
     const len = BP.laserLength;
     const thick = BP.laserThickness;
@@ -408,39 +434,6 @@ export function draw(ctx, cam, player) {
     ctx.strokeStyle = `rgba(${LIGHT_RGB},${1.0 * W.laser})`;
     ctx.lineWidth = thick;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
-
-    const tipR = Math.max(thick * 1.6, 6);
-    const tip = ctx.createRadialGradient(len, 0, 0, len, 0, tipR * 2);
-    tip.addColorStop(0, `rgba(${LIGHT_RGB},${0.9 * W.laser})`);
-    tip.addColorStop(1, `rgba(${LIGHT_RGB},0)`);
-    ctx.fillStyle = tip;
-    ctx.beginPath(); ctx.arc(len, 0, tipR * 2, 0, Math.PI * 2); ctx.fill();
-  }
-
-  // cone
-  if (W.cone > 0) {
-    const length = BP.coneLength;
-    const halfAngle = (BP.coneAngleTotalDeg * 0.5 * Math.PI) / 180;
-
-    const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, length);
-    bodyGrad.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.20 * W.cone})`);
-    bodyGrad.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
-    ctx.fillStyle = bodyGrad;
-
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.arc(0, 0, length, -halfAngle, +halfAngle, false);
-    ctx.closePath();
-    ctx.fill();
-
-    const rTip = Math.max(8, Math.tan(halfAngle) * length);
-    const tip = ctx.createRadialGradient(length, 0, 0, length, 0, rTip);
-    tip.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.30 * W.cone})`);
-    tip.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
-    ctx.fillStyle = tip;
-    ctx.beginPath();
-    ctx.arc(length, 0, rTip, 0, Math.PI * 2);
-    ctx.fill();
   }
 
   ctx.globalCompositeOperation = prevComp;
