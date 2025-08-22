@@ -24,14 +24,14 @@ const RIM_MAX_PERF = (MC.rimMaxPerFrame ?? 3000);      // cap strokes per frame
 const TW = (() => {
   const t = (MC.twinkle ?? {});
   return {
-    max: t.max ?? 220,
-    spawnChancePerCleared: t.spawnChancePerCleared ?? 0.6,
-    moteSize:  [4, 6],
-    wispSize:  [8, 12],
-    moteLife:  [1.5, 2.5],
-    wispLife:  [2.5, 3.5],
-    jitter:    5,
-    color:     "#66ffe5",   // 🟦 light teal
+    max: t.max ?? 160,                              // ↓ fewer total
+    spawnChancePerCleared: t.spawnChancePerCleared ?? 0.15, // ↓ fewer spawns
+    moteSize:  [1, 2],                              // ↓ tiny motes
+    wispSize:  [2, 3],                              // ↓ small wisps
+    moteLife:  [0.18, 0.35],                        // ↓ very short
+    wispLife:  [0.25, 0.60],                        // ↓ short
+    jitter:    6,                                   // slight wiggle
+    color:     "#66ffe5",                           // light teal
   };
 })();
 
@@ -93,7 +93,7 @@ function drawTwinkles(ctx) {
     const t = _tw.age[i] / _tw.life[i];
     // pulse (ease in/out)
     const a = (t < 0.5) ? (t * 2) : (1 - (t - 0.5) * 2);
-    ctx.globalAlpha = a * 0.85 + 0.15;
+    ctx.globalAlpha = a * 0.4 + 0.06;  // ↓ dimmer so gameplay stays readable
     const s = _tw.size[i];
     ctx.fillRect(_tw.x[i] - s * 0.5, _tw.y[i] - s * 0.5, s, s);
   }
