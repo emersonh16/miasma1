@@ -109,6 +109,59 @@ export function setParams(patch = {}) {
 export function getParams() { return { ...BeamParams, coneAngleTotalDeg: BeamParams.coneHalfAngleDeg * 2 }; }
 
 
+// --- Shared sampler so visuals == hitbox in continuous family (module-scope) ---
+function sampleContinuousEnvelope(origin, dir, L) {
+  const T = miasma.getTileSize();
+  const TILE_PAD = T * 0.15;
+  const ux = Math.cos(dir), uy = Math.sin(dir);
+  /** @type {{x:number,y:number,r:number}[]} */
+  const circles = [];
+
+  if (L <= 0.05) return circles;
+
+  if (L <= 0.3) {
+    const r = 16 + (BeamParams.bubbleRadius - 16) * (L / 0.3);
+    circles.push({ x: origin.x, y: origin.y, r: r + TILE_PAD });
+    return circles;
+  }
+
+  if (L <= 0.7) {
+    const t = (L - 0.3) / 0.4;
+    const len = 128 + (BeamParams.coneLength - 128) * t;
+    const halfA = ((64 - 48 * t) * Math.PI) / 180;
+    const step = Math.max(T * 1.0, 6);
+    for (let d = step; d <= len; d += step) {
+      const cx = origin.x + ux * d;
+      const cy = origin.y + uy * d;
+      const r = Math.max(4, Math.tan(halfA) * d) + TILE_PAD;
+      circles.push({ x: cx, y: cy, r });
+    }
+    // tip coverage
+    const tipR = Math.max(4, Math.tan(halfA) * len) + TILE_PAD;
+    circles.push({ x: origin.x + ux * len, y: origin.y + uy * len, r: tipR });
+    return circles;
+  }
+
+  // Laser phase
+  {
+    const t = (L - 0.7) / 0.3;
+    const len = 128 + (BeamParams.laserLength - 128) * t;
+    const thick = 4 + (BeamParams.laserThickness - 4) * t;
+    const rCore = Math.max(2, thick * 0.5 + TILE_PAD);
+    const stride = Math.max(T * 1.0, rCore * 0.9);
+    for (let d = stride; d <= len; d += stride) {
+      const wx = origin.x + ux * d;
+      const wy = origin.y + uy * d;
+      circles.push({ x: wx, y: wy, r: rCore });
+    }
+    circles.push({ x: origin.x + ux * len, y: origin.y + uy * len, r: rCore });
+    return circles;
+  }
+}
+
+
+
+
 // ---- hit test & clearing (hitbox matches visuals) ----
 export function raycast(origin, dir, params = {}) {
   const mode = params.mode || MODES[state.modeIndex];
@@ -120,47 +173,20 @@ export function raycast(origin, dir, params = {}) {
   BeamStats.clearedTiles = 0;
 
 
-  // continuous family → morph by state.level (with stats)
+
+
+  // continuous family → use shared sampler for exact alignment
   if (state.family === "continuous") {
     const L = state.level;
-
-    if (L <= 0.05) {
-      return { hits: [], clearedFog };
-    } else if (L <= 0.3) {
-      const r = 16 + (BeamParams.bubbleRadius - 16) * (L / 0.3);
-      {
-        const n = miasma.clearArea(origin.x, origin.y, r + TILE_PAD, BeamParams.budgetPerStamp);
-        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
-      }
-      return { hits: [], clearedFog };
-    } else if (L <= 0.7) {
-      const t = (L - 0.3) / 0.4;
-      const len = 128 + (BeamParams.coneLength - 128) * t;
-      const halfA = ((64 - 48 * t) * Math.PI) / 180;
-      const ux = Math.cos(dir), uy = Math.sin(dir);
-      for (let d = T * 2; d <= len; d += T * 2) {
-        const cx = origin.x + ux * d;
-        const cy = origin.y + uy * d;
-        const r = Math.max(4, Math.tan(halfA) * d) + TILE_PAD;
-        const n = miasma.clearArea(cx, cy, r, BeamParams.budgetPerStamp);
-        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
-      }
-      return { hits: [], clearedFog };
-    } else {
-      const t = (L - 0.7) / 0.3;
-      const len = 128 + (BeamParams.laserLength - 128) * t;
-      const thick = 4 + (BeamParams.laserThickness - 4) * t;
-      const ux = Math.cos(dir), uy = Math.sin(dir);
-      const rCore = thick * 0.5 + TILE_PAD;
-      for (let d = T; d <= len; d += T * 1.5) {
-        const wx = origin.x + ux * d;
-        const wy = origin.y + uy * d;
-        const n = miasma.clearArea(wx, wy, rCore, BeamParams.budgetPerStamp);
-        clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
-      }
-      return { hits: [], clearedFog };
+    const circles = sampleContinuousEnvelope(origin, dir, L);
+    for (const c of circles) {
+      const n = miasma.clearArea(c.x, c.y, c.r, BeamParams.budgetPerStamp);
+      clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
+    return { hits: [], clearedFog };
   }
+
+
 
   // Laser: clears fog AND damages enemies along the beam over time
   if (mode === "laser") {
@@ -352,45 +378,21 @@ export function draw(ctx, cam, player) {
 
   const LIGHT_RGB = "255,240,0";
 
-  // continuous family → morph by state.level
+  // continuous family → draw EXACTLY the sampled circles (opaque) to match hitbox
   if (state.family === "continuous") {
     const L = state.level;
 
-    if (L <= 0.05) { ctx.restore(); return; }
+    // We already translated to player and rotated by state.angle.
+    // So sample in local space at origin with dir=0 to avoid double-rotating.
+    const localCircles = sampleContinuousEnvelope({ x: 0, y: 0 }, 0, L);
 
-    if (L <= 0.3) {
-      const r = 16 + (BeamParams.bubbleRadius - 16) * (L / 0.3);
-      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-      g.addColorStop(0, `rgba(${LIGHT_RGB},0.3)`);
-      g.addColorStop(1, `rgba(${LIGHT_RGB},0.0)`);
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
-    } else if (L <= 0.7) {
-      const t = (L - 0.3) / 0.4;
-      const len = 128 + (BeamParams.coneLength - 128) * t;
-      const halfA = ((64 - 48 * t) * Math.PI) / 180;
-      const grad = ctx.createRadialGradient(0,0,0,0,0,len);
-      grad.addColorStop(0, `rgba(${LIGHT_RGB},0.2)`);
-      grad.addColorStop(1, `rgba(${LIGHT_RGB},0.0)`);
-      ctx.fillStyle = grad;
+    const SOLID = `rgba(${LIGHT_RGB},1.0)`; // opaque for testing
+    ctx.fillStyle = SOLID;
+
+    for (const c of localCircles) {
       ctx.beginPath();
-      ctx.moveTo(0,0);
-      ctx.arc(0,0,len,-halfA,halfA);
-      ctx.closePath();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
       ctx.fill();
-    } else {
-      const t = (L - 0.7) / 0.3;
-      const len = 128 + (BeamParams.laserLength - 128) * t;
-      const thick = 4 + (BeamParams.laserThickness - 4) * t;
-      ctx.lineCap = "round";
-
-      ctx.strokeStyle = `rgba(${LIGHT_RGB},0.25)`;
-      ctx.lineWidth = thick * 2;
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(len,0); ctx.stroke();
-
-      ctx.strokeStyle = `rgba(${LIGHT_RGB},1.0)`;
-      ctx.lineWidth = thick;
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(len,0); ctx.stroke();
     }
 
     ctx.globalCompositeOperation = prevComp;
@@ -398,6 +400,7 @@ export function draw(ctx, cam, player) {
     ctx.restore();
     return;
   }
+
 
 
   if (mode === "bubble") {
