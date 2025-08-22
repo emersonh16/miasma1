@@ -7,7 +7,7 @@ import { iterEntitiesInAABB } from "../../world/store.js";
 const FOG_T = () => miasma.getTileSize();
 
 const MODES = ["laser", "cone", "bubble", "off"];
-const state = { modeIndex: 1, angle: 0, family: "discrete", level: 0 };
+
 
 
 export function getMode() { return MODES[state.modeIndex]; }
@@ -41,6 +41,25 @@ const BeamParams = {
   coneHalfAngleDeg: 32,    // deg (half-angle; default = 64° total)
   budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
 };
+
+const LEVELS = 16; // 0..16 where 0=OFF, 16=LASER
+const state = { modeIndex: 1, angle: 0, family: "discrete", levelIndex: 0 };
+
+export function getLevelIndex() { return state.levelIndex | 0; }          // int 0..16
+export function setLevelIndex(i) { state.levelIndex = Math.max(0, Math.min(16, (i|0))); }
+export function stepLevel(di = 1) { setLevelIndex(getLevelIndex() + (di|0)); }
+
+// legacy no-ops to avoid breaking callers; keep if something still calls adjustLevel/getLevel
+export function adjustLevel(delta) {
+  // convert any +/- delta into ±1 step (keeps old callers from breaking)
+  if (!Number.isFinite(delta) || delta === 0) return;
+  stepLevel(delta > 0 ? +1 : -1);
+}
+export function getLevel() {
+  // normalized (0..1) view if some UI reads it
+  return getLevelIndex() / LEVELS;
+}
+
 
 // perf stats (updated each raycast)
 const BeamStats = { stamps: 0, clearedTiles: 0 };
@@ -78,11 +97,6 @@ function clearLaser(origin, dir, length, thickness, budget) {
 }
 
 
-export function adjustLevel(delta) {
-  state.level = Math.max(0, Math.min(1, state.level + delta));
-}
-export function getLevel() { return state.level; }
-
 
 function clampConeHalf(deg) {
   if (!Number.isFinite(deg)) return BeamParams.coneHalfAngleDeg;
@@ -110,63 +124,53 @@ export function getParams() { return { ...BeamParams, coneAngleTotalDeg: BeamPar
 
 
 // --- Shared sampler so visuals == hitbox in continuous family (module-scope) ---
-function sampleContinuousEnvelope(origin, dir, L) {
+function sampleContinuousEnvelope(origin, dir) {
   const T = miasma.getTileSize();
   const TILE_PAD = T * 0.15;
   const ux = Math.cos(dir), uy = Math.sin(dir);
-  /** @type {{x:number,y:number,r:number}[]} */
   const circles = [];
+  const idx = getLevelIndex(); // 0..16
 
-  if (L <= 0.05) {
-    // Show a tiny bubble that scales up with L (matches hitbox)
-    const base = 6; // px minimum so it's visible
-    const r = base + (BeamParams.bubbleRadius * 0.25) * (L / 0.05);
-    // uses outer T and TILE_PAD
+  // 0 = OFF
+  if (idx <= 0) return circles;
 
+  // 1..5 → Bubble (grow radius)
+  if (idx <= 5) {
+    const r0 = 12, r1 = BeamParams.bubbleRadius;
+    const t = (idx - 1) / (5 - 1); // 0..1 across 1..5
+    const r = r0 + (r1 - r0) * t;
     circles.push({ x: origin.x, y: origin.y, r: r + TILE_PAD });
     return circles;
   }
 
-
-  if (L <= 0.3) {
-    const r = 16 + (BeamParams.bubbleRadius - 16) * (L / 0.3);
-    circles.push({ x: origin.x, y: origin.y, r: r + TILE_PAD });
-    return circles;
-  }
-
-  if (L <= 0.7) {
-    // Cone band: angle narrows 64°→4°, length eases from CONE_L0→CONE_L1
-    const t = (L - 0.3) / 0.4; // 0..1 within cone band
+  // 6..15 → Cone (angle 64→4°, length from base→coneLength)
+  if (idx <= 15) {
+    const t = (idx - 6) / (15 - 6); // 0..1 across 6..15
     const halfStart = 32, halfEnd = 2;
-    const halfAdeg  = Math.max(halfEnd, halfStart + (halfEnd - halfStart) * t);
+    const halfAdeg  = halfStart + (halfEnd - halfStart) * t;
     const halfA     = (halfAdeg * Math.PI) / 180;
 
-    // lengths
     const CONE_L0 = Math.max(BeamParams.bubbleRadius * 1.25, 128);
-    const CONE_L1 = BeamParams.coneLength;
-    const len     = CONE_L0 + (CONE_L1 - CONE_L0) * t;
+    const len     = CONE_L0 + (BeamParams.coneLength - CONE_L0) * t;
 
     const step = Math.max(T * 1.0, 6);
     for (let d = step; d <= len; d += step) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
-      const r  = Math.max(4, Math.tan(halfA) * d) + TILE_PAD;
-      circles.push({ x: cx, y: cy, r });
+      const rr = Math.max(4, Math.tan(halfA) * d) + TILE_PAD;
+      circles.push({ x: cx, y: cy, r: rr });
     }
     const tipR = Math.max(4, Math.tan(halfA) * len) + TILE_PAD;
     circles.push({ x: origin.x + ux * len, y: origin.y + uy * len, r: tipR });
     return circles;
   }
 
-  // Laser band (BINARY): fixed, long beam — no length growth.
-  // Must be substantially longer than max cone; includes a visible jump from cone → laser.
+  // 16 → LASER (binary): fixed, slightly longer than cone max
   {
-    const Tz = miasma.getTileSize();
     const CONE_MAX = BeamParams.coneLength;
-    const MIN_JUMP_PX = Math.max(48, Tz * 8); // clear, substantial step beyond cone tip
-    const FIXED_LEN = Math.max(BeamParams.laserLength, CONE_MAX + MIN_JUMP_PX);
+    const MIN_JUMP_PX = Math.max(12, T * 2);            // “visibly longer but not much”
+    const FIXED_LEN   = CONE_MAX + MIN_JUMP_PX;
 
-    // Fixed thickness too (binary feel): no thickness morph here
     const thick = BeamParams.laserThickness;
     const rCore = Math.max(2, thick * 0.5 + TILE_PAD);
     const stride = Math.max(T * 1.0, rCore * 0.9);
@@ -179,10 +183,9 @@ function sampleContinuousEnvelope(origin, dir, L) {
     circles.push({ x: origin.x + ux * FIXED_LEN, y: origin.y + uy * FIXED_LEN, r: rCore });
     return circles;
   }
-
-
-
 }
+
+
 
 
 
@@ -198,19 +201,13 @@ export function raycast(origin, dir, params = {}) {
   BeamStats.clearedTiles = 0;
 
 
-
-
-  // continuous family → use shared sampler for exact alignment
+  // continuous family → use shared sampler (0..16 levels)
   if (state.family === "continuous") {
-    const L = state.level;
-    const circles = sampleContinuousEnvelope(origin, dir, L);
+    const circles = sampleContinuousEnvelope(origin, dir);
     for (const c of circles) {
       const n = miasma.clearArea(c.x, c.y, c.r, BeamParams.budgetPerStamp);
       clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
-     // (seed moved to game.js to avoid intra‑module self‑imports)
-
-
     return { hits: [], clearedFog };
   }
 
@@ -219,7 +216,10 @@ export function raycast(origin, dir, params = {}) {
   // Laser: clears fog AND damages enemies along the beam over time
   if (mode === "laser") {
     // --- visual/clear pass (unchanged) ---
-    const len = BeamParams.laserLength;
+    const Tz = miasma.getTileSize();
+    const MIN_JUMP_PX = Math.max(12, Tz * 2);
+    const len = Math.max(BeamParams.coneLength + MIN_JUMP_PX, 64);
+
     const ux = Math.cos(dir),  uy = Math.sin(dir); // forward
     const nx = -Math.sin(dir), ny = Math.cos(dir); // normal
 
@@ -408,11 +408,10 @@ export function draw(ctx, cam, player) {
 
   // continuous family → draw EXACTLY the sampled circles (opaque) to match hitbox
   if (state.family === "continuous") {
-    const L = state.level;
-
     // We already translated to player and rotated by state.angle.
     // So sample in local space at origin with dir=0 to avoid double-rotating.
-    const localCircles = sampleContinuousEnvelope({ x: 0, y: 0 }, 0, L);
+    const localCircles = sampleContinuousEnvelope({ x: 0, y: 0 }, 0);
+
 
     const SOLID = `rgba(${LIGHT_RGB},1.0)`; // opaque for testing
     ctx.fillStyle = SOLID;
@@ -441,7 +440,9 @@ export function draw(ctx, cam, player) {
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
   } else if (mode === "laser") {
-    const len = BeamParams.laserLength;
+    const Tz = miasma.getTileSize();
+    const MIN_JUMP_PX = Math.max(12, Tz * 2);
+    const len = Math.max(BeamParams.coneLength + MIN_JUMP_PX, 64);
     const thick = BeamParams.laserThickness;
     ctx.lineCap = "round";
 

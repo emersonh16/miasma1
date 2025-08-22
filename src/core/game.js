@@ -85,21 +85,22 @@ addEventListener("mousemove", (e) => {
 const WHEEL_STEP = 100;
 const CONT_STEPS = 256;
 
-// AGGRO “More coast”
-const TORQUE_IMPULSE   = 3.6;
-const TORQUE_DECAY_HZ  = 3.6;   // ↓ hangs onto torque longer
-const INERTIA          = 36;
-const VEL_DAMPING_HZ   = 0.95;  // ↓ baseline drag
-const VEL_MAX          = 1850;
-const REVERSE_BRAKE    = 0.36;  // ↓ softer flip
+// Arcade snap — faster response, shorter coast
+const TORQUE_IMPULSE   = 3.2;  // a touch less shove (reduces runaway)
+const TORQUE_DECAY_HZ  = 4.6;  // torque fades quicker
+const INERTIA          = 34;   // snappy spin-up
+const VEL_DAMPING_HZ   = 1.7;  // stronger baseline damping → stops sooner
+const VEL_MAX          = 1600; // slightly lower top speed
+const REVERSE_BRAKE    = 0.65; // flips feel crisp
 
-// Flick‑drag
-const DRAG_BASE_HZ     = 0.0;
-const DRAG_K_HZ        = 3.2;
-const DRAG_DECAY_HZ    = 5.0;
+// Kill fancy drag bursts for clarity (set base small, strong decay)
+const DRAG_BASE_HZ     = 0.08;
+const DRAG_K_HZ        = 0.0;
+const DRAG_DECAY_HZ    = 6.0;
 
-// Kick
-const KICK_VEL_STEPS   = 140;   // keep punchy
+// Smaller initial kick so tiny flicks don’t overshoot
+const KICK_VEL_STEPS   = 80;
+
 
 // Min‑alive + Off
 const MIN_ACTIVE_STEP   = 7;
@@ -128,86 +129,54 @@ function ease01(x) {              // snappier S-curve 0..1
   return xxx / (1 + xxx);
 }
 
-
+// 16-step stepper: 0 = OFF, 1..15 = bubble→cone, 16 = LASER
 addEventListener("wheel", (e) => {
   const family = (typeof beam.getFamily === "function") ? beam.getFamily() : "discrete";
- const sign = (e.deltaY > 0) ? +1 : -1; // ↓ (deltaY>0) drives toward LASER, ↑ toward OFF
+  const sign = (e.deltaY > 0) ? +1 : -1; // ↓ attack (toward laser), ↑ retreat (toward off)
 
-
+  // Treat continuous as stepped now
   if (family === "continuous") {
-    const now = performance.now();
-    const dt = Math.max(0, (now - wheelCtrl.lastT) / 1000);
-    wheelCtrl.lastT = now;
+    // HARD STOP on direction flip is implicit because we only step on notches now
+    const nowMs = performance.now();
+    const idx = (typeof beam.getLevelIndex === "function") ? beam.getLevelIndex() : 0; // 0..16
 
-    // fade prior torque
-    wheelCtrl.torque *= Math.exp(-TORQUE_DECAY_HZ * dt);
-
-    if (wheelCtrl.dir !== 0 && sign !== wheelCtrl.dir) {
-      // HARD STOP: freeze exactly on current 1/256 step
-      wheelCtrl.vel = 0;
-      wheelCtrl.accSteps = 0;
-      wheelCtrl.torque = 0;
-      wheelCtrl.dragHz = 0;
-      // Latch the stop so the very next frame can't advance due to leftover math
-      wheelCtrl.stoppedUntilMs = performance.now() + 50; // ~1 frame @60fps
-      wheelCtrl.dir = sign;
-      e.preventDefault(); // do not add torque on this flip event
+    // From OFF: first DOWN → min-alive (level 1)
+    if (idx === 0 && sign > 0) {
+      if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(1);
+      e.preventDefault();
       return;
     }
-    wheelCtrl.dir = sign;
 
-    // --- Ergonomic gates: min‑alive bubble + extra notch to Off ---
-    {
-      const nowMs = performance.now();
-      const curL  = (typeof beam.getLevel === "function") ? (beam.getLevel() || 0) : 0;
-
-      // 1) From OFF: first DOWN notch boots to min‑alive bubble (not mid‑cone)
-      if (curL <= 0.0001 && sign > 0) { // down = toward LASER
-        beam.adjustLevel(MIN_ACTIVE_LEVEL - curL);
-        e.preventDefault();
-        return;
+    // UP near OFF: require extra UP to go 0
+    if (sign < 0 && idx === 1) {
+      // double-up window
+      if (!wheelCtrl.offArmDeadline || nowMs > wheelCtrl.offArmDeadline) {
+        // arm
+        wheelCtrl.offArmDeadline = nowMs + OFF_DBLCLICK_MS;
+        // stay at level 1 (tiny bubble)
+      } else {
+        // commit off
+        if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(0);
+        wheelCtrl.offArmDeadline = 0;
       }
-
-      // 2) UP toward OFF: stop at min‑alive; require second UP (within window) to fully go Off
-      const EPS = 1e-4;
-      if (sign < 0 && curL <= MIN_ACTIVE_LEVEL + EPS) { // up = toward OFF
-        if (nowMs <= (wheelCtrl.offArmDeadline || 0)) {
-          // second UP within window -> go Off
-          beam.adjustLevel(-curL);
-          wheelCtrl.offArmDeadline = 0;
-        } else {
-          // first UP -> snap to min‑alive and arm Off
-          if (curL > MIN_ACTIVE_LEVEL) beam.adjustLevel(MIN_ACTIVE_LEVEL - curL);
-          wheelCtrl.offArmDeadline = nowMs + OFF_DBLCLICK_MS;
-        }
-        e.preventDefault();
-        return;
-      }
+      e.preventDefault();
+      return;
     }
 
+    // Normal stepping
+    const next = Math.max(0, Math.min(16, idx + (sign > 0 ? +1 : -1)));
+    if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(next);
 
-
-
-    // add torque proportional to notch magnitude
-    const notch = Math.min(2.5, Math.abs(e.deltaY) / WHEEL_STEP);
-    wheelCtrl.torque += sign * (TORQUE_IMPULSE * notch);
-
-    // compute instantaneous flick speed (normalized by event dt)
-    const flickSpeed = dt > 0 ? (Math.abs(e.deltaY) / WHEEL_STEP) / dt : 0; // “per‑second notches”
-    // set immediate drag proportional to flick speed (snaps on, then fades)
-    const targetDrag = DRAG_BASE_HZ + DRAG_K_HZ * Math.min(4, flickSpeed);
-    if (targetDrag > wheelCtrl.dragHz) wheelCtrl.dragHz = targetDrag;
-
-
-    e.preventDefault();  // avoid page scroll
+    e.preventDefault();
     return;
   }
 
-  // --- discrete family: simple notch cycling (unchanged)
+  // legacy discrete family mode stepping unchanged
   wheelCtrl.discAcc += e.deltaY;
   while (wheelCtrl.discAcc <= -WHEEL_STEP) { beam.modeUp(1);   wheelCtrl.discAcc += WHEEL_STEP; }
   while (wheelCtrl.discAcc >=  WHEEL_STEP) { beam.modeDown(1); wheelCtrl.discAcc -= WHEEL_STEP; }
 }, { passive: false });
+
 
 
 // --- Game state (pause/death) ---
@@ -335,7 +304,7 @@ function frame(now) {
 
     // --- BRAKE (coast): only when user isn’t pushing
     if (Math.abs(wheelCtrl.torque) < 0.001) {
-      const brake = 0.92;  // gentler coast; raise toward 0.95 to coast longer, lower to stop faster
+      const brake = 0.86;  // gentler coast; raise toward 0.95 to coast longer, lower to stop faster
       wheelCtrl.vel *= (1 - (1 - brake) * dt * 60);
     }
 
