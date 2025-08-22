@@ -7,12 +7,19 @@
 import { worldToTile, mod } from "../../core/coords.js";
 import { config } from "../../core/config.js";
 
-
 // ---- Config knobs ----
 const MC = (config.miasma ?? {});
 const TILE_SIZE = MC.tileSize ?? 8;
 const FOG_COLOR = MC.color ?? "rgba(128,0,180,1.0)";   // fully opaque purple
 const PAD = MC.regrowPad ?? (MC.marginTiles ?? 6);
+
+// Edge‑rim glow (PR2)
+const RIM_TTL_S    = (MC.rimTTL ?? 0.60);              // ↑ longer so it’s obvious
+const RIM_COLOR    = (MC.rimColor ?? "#ffffff");       // ↑ bright white to confirm it works
+const RIM_WIDTH    = (MC.rimWidth ?? 1.5);             // ↑ slightly thicker
+const RIM_MAX_PERF = (MC.rimMaxPerFrame ?? 3000);      // cap strokes per frame
+
+
 
 // Off-screen behavior (in tiles)
 const OFFSCREEN_REG_PAD    = MC.offscreenRegrowPad  ?? (PAD * 6);   // regrow this far past view
@@ -479,7 +486,49 @@ export function draw(ctx, cam, w, h) {
   if (tilesDrawn > 0) ctx.fill();
   S.stats.drawHoles = tilesDrawn;
 
+  // 3) Edge‑rim glow pass (additive), only along fresh frontier tiles
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineWidth = RIM_WIDTH;
+  ctx.strokeStyle = RIM_COLOR;
+
+  // (temporary debug spice so it really pops; harmless when RIM_WIDTH small)
+  const prevShadowBlur = ctx.shadowBlur;
+  const prevShadowColor = ctx.shadowColor;
+  if (config.flags.devhud) {
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = RIM_COLOR;
+  }
+
+  let rimDrawn = 0;
+  for (const k of frontier) {
+    if (rimDrawn >= RIM_MAX_PERF) break;
+
+    const tCleared = clearedMap.get(k);
+    if (tCleared === undefined) continue;
+    const age = S.time - tCleared;
+    if (age > RIM_TTL_S) continue;
+
+    const [fx, fy] = k.split(",").map(Number);
+    const tx = fx + offX;
+    const ty = fy + offY;
+    if (tx < left || tx >= right || ty < top || ty >= bottom) continue;
+
+    // brighter baseline + fade so it’s visible
+    const alpha = 0.85 * Math.max(0, 1 - age / RIM_TTL_S) + 0.15;
+    ctx.globalAlpha = alpha;
+
+    const sx = tx * TILE_SIZE + 0.5;
+    const sy = ty * TILE_SIZE + 0.5;
+    const sw = TILE_SIZE - 1;
+    const sh = TILE_SIZE - 1;
+    ctx.strokeRect(sx, sy, sw, sh);
+    rimDrawn++;
+  }
+
   // Restore normal blending & transform
+  ctx.shadowBlur = prevShadowBlur;
+  ctx.shadowColor = prevShadowColor;
+  ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
 }
