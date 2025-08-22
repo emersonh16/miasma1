@@ -37,10 +37,11 @@ const TW = (() => {
   return {
     max: t.max ?? 160,                              // ↓ fewer total
 spawnChancePerCleared: 1.0, // every cleared tile spawns
-moteSize: [1, 2],
-wispSize: [3, 4],
-moteLife: [6, 8],
-wispLife: [6, 8],                      // ↓ short
+    moteSize: [1, 2],          // tiny specks
+    wispSize: [2, 3],          // small wisps
+    moteLife: [0.18, 0.35],    // very short
+    wispLife: [0.25, 0.60],    // short
+                     // ↓ short
     jitter:    6,                                   // slight wiggle
     color:     RIM_COLOR,                           // match rim glow color
 
@@ -151,16 +152,30 @@ function updateTwinkles(dt) {
 }
 
 function drawTwinkles(ctx) {
-  // DEBUG: make twinkles unmistakable for visibility checks
-  ctx.globalCompositeOperation = "source-over"; // draw directly (no additive)
+  // Additive spark look, snapped to 4px tiles so it augments your pixel grid
+  const Q = TILE_SIZE; // 4px
+  ctx.globalCompositeOperation = "lighter";
   ctx.fillStyle = TW.color;
+
   for (let i = 0; i < TW.max; i++) {
     if (!_tw.use[i]) continue;
-    ctx.globalAlpha = 1;                 // fully opaque for debug
-    const s = _tw.size[i] * 2;           // larger so they pop
-    ctx.fillRect(_tw.x[i] - s * 0.5, _tw.y[i] - s * 0.5, s, s);
+
+    const t = _tw.age[i] / _tw.life[i];
+    // quick spark: bright pop, then fast fade
+    const a = (t < 0.25) ? (1.0 - t * 2.0) : Math.max(0, 0.6 - (t - 0.25) * 1.6);
+    ctx.globalAlpha = 0.85 * a + 0.1;
+
+    // snap to grid, ensure ≥4px footprint
+    const sRaw = Math.max(1, _tw.size[i]);
+    const s = Math.max(Q, Math.round(sRaw / Q) * Q);  // 4, 8, ...
+    const sx = Math.round(_tw.x[i] / Q) * Q - (s >> 1);
+    const sy = Math.round(_tw.y[i] / Q) * Q - (s >> 1);
+
+    ctx.fillRect(sx, sy, s, s);
   }
+
   ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
 }
 
 
@@ -340,8 +355,10 @@ export function clearArea(wx, wy, r, _amt = 64) {
           let vy = centerY - S.py;
           const len = Math.hypot(vx, vy) || 1;
           vx /= len; vy /= len; // unit direction away from player
-          spawnTwinkle(centerX, centerY);
+          // pass the direction + intensity so sparks launch correctly
+          spawnTwinkle(centerX, centerY, vx, vy, beamBoost);
         }
+
 
       }
     }
