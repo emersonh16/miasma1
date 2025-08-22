@@ -60,7 +60,7 @@ const _tw = {
 
 function _rand(min, max) { return min + Math.random() * (max - min); }
 
-function spawnTwinkle(wx, wy) {
+function spawnTwinkle(wx, wy, dirX = NaN, dirY = NaN, intensity = 0) {
   // 80% motes, 20% wisps
   const isWisp = (Math.random() < 0.2);
   const size = isWisp ? _rand(TW.wispSize[0], TW.wispSize[1])
@@ -73,13 +73,31 @@ function spawnTwinkle(wx, wy) {
 
   _tw.x[i] = wx + _rand(-0.5, 0.5);
   _tw.y[i] = wy + _rand(-0.5, 0.5);
-  _tw.vx[i] = _rand(-TW.jitter, TW.jitter);
-  _tw.vy[i] = _rand(-TW.jitter, TW.jitter);
+
+  // Base speed shoots INTO the miasma along the provided direction (if any),
+  // scaled by beam intensity. Falls back to jitter-only if no dir provided.
+  const hasDir = Number.isFinite(dirX) && Number.isFinite(dirY);
+  const baseSpeed = 40 + 160 * Math.max(0, Math.min(1, intensity)); // 40..200 px/s
+  const jx = _rand(-TW.jitter, TW.jitter);
+  const jy = _rand(-TW.jitter, TW.jitter);
+
+  if (hasDir) {
+    // normalize dir just in case
+    const len = Math.hypot(dirX, dirY) || 1;
+    const ux = dirX / len, uy = dirY / len;
+    _tw.vx[i] = ux * baseSpeed + jx * 0.35; // mostly outward, a little wiggle
+    _tw.vy[i] = uy * baseSpeed + jy * 0.35;
+  } else {
+    _tw.vx[i] = jx;
+    _tw.vy[i] = jy;
+  }
+
   _tw.size[i] = size;
   _tw.age[i] = 0;
   _tw.life[i] = life;
   _tw.use[i] = 1;
 }
+
 
 function updateTwinkles(dt) {
   const n = TW.max;
@@ -272,10 +290,18 @@ if (!clearedMap.has(k)) {
   S.stats.clearCalls++;
   checkFrontier(ftx, fty);
   updateNeighbors(ftx, fty);
-const beamBoost = getBeamIntensity(); // 0..1
+const beamBoost = getBeamIntensity(); // 0..1 (laser strongest)
+
+// Spray AWAY from the light source, INTO the miasma, using beam angle.
+const a = (typeof beam.getAngle === "function") ? beam.getAngle() : 0;
+const dx = Math.cos(a);
+const dy = Math.sin(a);
+
 if (Math.random() < TW.spawnChancePerCleared * (1 + beamBoost)) {
-  spawnTwinkle(centerX, centerY);
+  // pass direction + intensity so motes shoot outward into the fog
+  spawnTwinkle(centerX, centerY, dx, dy, beamBoost);
 }
+
 
       }
 
