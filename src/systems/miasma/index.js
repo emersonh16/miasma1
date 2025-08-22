@@ -8,6 +8,8 @@ import { worldToTile, mod } from "../../core/coords.js";
 import { config } from "../../core/config.js";
 import * as beam from "../beam/index.js";
 
+
+
 function getBeamIntensity() {
   const mode = beam.getMode(); // "laser", "cone", "bubble", "off"
   if (mode === "laser") return 1.0;
@@ -75,22 +77,29 @@ function spawnTwinkle(wx, wy, dirX = NaN, dirY = NaN, intensity = 0) {
   _tw.x[i] = wx;
   _tw.y[i] = wy;
 
-  // --- SPARK PHYSICS: strong outward burst with angular spread ---
-  const hasDir = Number.isFinite(dirX) && Number.isFinite(dirY);
-  // base vector = beam direction if provided, else random
-  let baseAngle = hasDir ? Math.atan2(dirY, dirX) : Math.random() * Math.PI * 2;
-  // add small cone spread so sparks spray out
-  const spread = (hasDir ? 0.45 : Math.PI); // ~26° around beam; full circle if no dir
-  const ang = baseAngle + _rand(-spread * 0.5, spread * 0.5);
+  // --- SPARK PHYSICS: burst AWAY FROM THE PLAYER (S.px,S.py), or along provided dir ---
+  let ux, uy;
+  if (Number.isFinite(dirX) && Number.isFinite(dirY)) {
+    // use provided direction (e.g., beam or emitter)
+    const len = Math.hypot(dirX, dirY) || 1;
+    ux = dirX / len; uy = dirY / len;
+  } else {
+    // fallback: radial from player → spawn point
+    let vx = wx - S.px, vy = wy - S.py;
+    const len = Math.hypot(vx, vy) || 1;
+    ux = vx / len; uy = vy / len;
+  }
 
-  // speed scales hard with intensity (laser -> much faster)
-  const t = Math.max(0, Math.min(1, intensity));
-  const speed = 120 + 260 * t + _rand(-20, 20); // 120..380 px/s (+/- jitter)
-  _tw.vx[i] = Math.cos(ang) * speed;
-  _tw.vy[i] = Math.sin(ang) * speed;
+  // add a small cone spread so it looks like sparks, not a line
+  const spread = 0.35; // ~20°
+  const theta = Math.atan2(uy, ux) + _rand(-spread * 0.5, spread * 0.5);
+  const t = Math.max(0, Math.min(1, intensity)); // 0..1 (beam intensity)
+  const speed = 120 + 260 * t + _rand(-20, 20);  // scales with intensity
+  _tw.vx[i] = Math.cos(theta) * speed;
+  _tw.vy[i] = Math.sin(theta) * speed;
 
   // shorter life for crackly sparks
-  life *= hasDir ? 0.6 : 0.8;
+  life *= 0.7;
 
   _tw.size[i] = size;
   _tw.age[i] = 0;
@@ -99,14 +108,43 @@ function spawnTwinkle(wx, wy, dirX = NaN, dirY = NaN, intensity = 0) {
 }
 
 
-
 function updateTwinkles(dt) {
+  // Continuous outward push from the derelict’s light, always on.
+  // Small + safe: accelerates sparks away from player each frame, with a cap.
+  const LIGHT_PUSH_BASE  = 80;   // px/s^2 baseline push
+  const LIGHT_PUSH_BOOST = 220;  // extra push at full laser
+  const MAX_SPARK_SPEED  = 420;  // px/s safety cap
+
+  const intensity = getBeamIntensity(); // 0..1 (laser strongest)
+  const push = LIGHT_PUSH_BASE + LIGHT_PUSH_BOOST * intensity;
+
   const n = TW.max;
   for (let i = 0; i < n; i++) {
     if (!_tw.use[i]) continue;
+
+    // Age & lifetime
     const age = _tw.age[i] + dt;
     if (age >= _tw.life[i]) { _tw.use[i] = 0; continue; }
     _tw.age[i] = age;
+
+    // Direction from player → particle (outward into miasma)
+    let dx = _tw.x[i] - S.px;
+    let dy = _tw.y[i] - S.py;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+
+    // Apply outward acceleration from light
+    _tw.vx[i] += dx * push * dt;
+    _tw.vy[i] += dy * push * dt;
+
+    // Cap speed so it stays readable and stable
+    const sp = Math.hypot(_tw.vx[i], _tw.vy[i]);
+    if (sp > MAX_SPARK_SPEED) {
+      const s = MAX_SPARK_SPEED / (sp || 1);
+      _tw.vx[i] *= s; _tw.vy[i] *= s;
+    }
+
+    // Integrate position
     _tw.x[i] += _tw.vx[i] * dt;
     _tw.y[i] += _tw.vy[i] * dt;
   }
@@ -302,7 +340,7 @@ export function clearArea(wx, wy, r, _amt = 64) {
           let vy = centerY - S.py;
           const len = Math.hypot(vx, vy) || 1;
           vx /= len; vy /= len; // unit direction away from player
-          spawnTwinkle(centerX, centerY, vx, vy, beamBoost);
+          spawnTwinkle(centerX, centerY);
         }
 
       }
