@@ -174,24 +174,44 @@ function sampleContinuousEnvelope(origin, dir) {
     return circles;
   }
 
-  // Blend 2→3 = bubble→wide cone
+   // Blend 2→3 = bubble→wide cone (no “tube” on rollback)
   if (idxF <= 3.0) {
     const t = idxF - 2.0; // 0..1
-    const halfAdeg = 32;  // wide cone
+    const halfAdeg = 32;               // wide cone target
     const halfA = (halfAdeg * Math.PI) / 180;
     const len   = BeamParams.coneLength;
     const step  = Math.max(T * 1.0, 6);
-    for (let d = step; d <= len; d += step) {
-      const cx = origin.x + ux * d;
-      const cy = origin.y + uy * d;
-      // blend bubble radius into cone radius at start
-      const rrBubble = BeamParams.bubbleRadius;
-      const rrCone   = Math.max(4, Math.tan(halfA) * d);
-      const rr       = rrBubble + (rrCone - rrBubble) * t;
-      circles.push({ x: cx, y: cy, r: rr });
+
+    const rrBubble = BeamParams.bubbleRadius;
+
+    // Keep a center bubble that shrinks away as cone grows
+    const shrink = 1 - Math.pow(t, 0.85); // fast at first, then eases out
+    if (shrink > 0.001) {
+      circles.push({ x: origin.x, y: origin.y, r: rrBubble * shrink });
     }
+
+    // Grow cone coverage length from 0 → len; avoid full-length tube at small t
+    const L = Math.max(0, len * t);
+    if (L > step * 0.5) {
+      for (let d = step; d <= L; d += step) {
+        const cx = origin.x + ux * d;
+        const cy = origin.y + uy * d;
+
+        // Taper radius from bubble at base → cone at current distance
+        const rrCone = Math.max(4, Math.tan(halfA) * d);
+        const along  = d / L;                          // 0 at base → 1 at current tip
+        const rr     = rrBubble * (1 - along) + rrCone * along;
+
+        circles.push({ x: cx, y: cy, r: rr });
+      }
+      // Ensure a tip at L for clean silhouette
+      const tipCone = Math.max(4, Math.tan(halfA) * L);
+      circles.push({ x: origin.x + ux * L, y: origin.y + uy * L, r: tipCone });
+    }
+
     return circles;
   }
+
 
   // Blend 3→4 = wide cone→laser
   {
