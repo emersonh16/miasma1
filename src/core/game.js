@@ -81,75 +81,62 @@ addEventListener("mousemove", (e) => {
   mouseY = e.clientY * devicePixelRatio;
 });
 
-// --- Wheel → beam stepper with momentum (64-step continuous), dir-sensitive ramp ---
-const WHEEL_STEP = 100; // typical notch ~= 100
-const wheel = {
+// --- Wheel → “heavy swivel” controller (torque → velocity → level)
+const WHEEL_STEP = 100;          // typical notch ~= 100
+const CONT_STEPS = 256;          // fine granularity for level (0..1)
+
+const TORQUE_IMPULSE   = 1.25;   // torque per notch (normalized)
+const TORQUE_DECAY_HZ  = 7.0;    // torque fades fast (flicks)
+const INERTIA          = 140;    // heavier = slower spin-up
+const VEL_DAMPING_HZ   = 2.4;    // coast-down friction
+const VEL_MAX          = 520;    // clamp |velocity| in steps/sec
+const REVERSE_BRAKE    = 0.22;   // kill some velocity on direction flip
+
+const wheelCtrl = {
   lastT: performance.now(),
-  dir: 0,           // -1 = up, +1 = down (per deltaY sign)
-  momentum: 0,      // grows with sustained scroll, decays with time
-  acc: 0            // for discrete mode accumulation
+  dir: 0,          // -1 up, +1 down
+  torque: 0,       // accumulated push
+  vel: 0,          // steps/sec
+  accSteps: 0,     // fractional steps
+  discAcc: 0       // for discrete mode
 };
-const CONT_STEPS = 256;                  // quantization for continuous level
-const MOMENTUM_K = 1.0;                 // impulse per notch
-const MOMENTUM_DECAY_HZ = 3.0;          // higher = faster decay
-const MAX_STEP_BURST = 6;               // max steps per notch when spun fast
+
+function ease01(x) {              // cheap sigmoid-ish 0..1
+  const xx = x * x;
+  return xx / (1 + xx);
+}
 
 addEventListener("wheel", (e) => {
-  const now = performance.now();
-  const dt = Math.max(0, (now - wheel.lastT) / 1000);
-  wheel.lastT = now;
+  const family = (typeof beam.getFamily === "function") ? beam.getFamily() : "discrete";
+  const sign = (e.deltaY < 0) ? +1 : -1;
 
-  // Exponential momentum decay
-  const decay = Math.exp(-MOMENTUM_DECAY_HZ * dt);
-  wheel.momentum *= decay;
+  if (family === "continuous") {
+    const now = performance.now();
+    const dt = Math.max(0, (now - wheelCtrl.lastT) / 1000);
+    wheelCtrl.lastT = now;
 
-  const sign = Math.sign(e.deltaY) || 1; // +1 down, -1 up
+    // fade prior torque
+    wheelCtrl.torque *= Math.exp(-TORQUE_DECAY_HZ * dt);
 
-  if (beam.getFamily() === "continuous") {
-    // Direction change → "snap slow": clamp momentum low
-    if (wheel.dir !== 0 && sign !== wheel.dir) {
-      wheel.momentum = Math.min(wheel.momentum, 0.75);
+    // reverse direction → brake velocity so it resists before turning
+    if (wheelCtrl.dir !== 0 && sign !== wheelCtrl.dir) {
+      wheelCtrl.vel *= REVERSE_BRAKE;
     }
-    wheel.dir = sign;
+    wheelCtrl.dir = sign;
 
-    // Add impulse proportional to wheel movement (normalize by WHEEL_STEP)
-    wheel.momentum += MOMENTUM_K * Math.min(1.5, Math.abs(e.deltaY) / WHEEL_STEP);
+    // add torque proportional to notch magnitude
+    const notch = Math.min(1.75, Math.abs(e.deltaY) / WHEEL_STEP);
+    wheelCtrl.torque += sign * (TORQUE_IMPULSE * notch);
 
-
-// Map momentum (0..∞) into 0..1 curve
-const eased = Math.min(1, (wheel.momentum * wheel.momentum) / (1 + wheel.momentum * wheel.momentum));
-// Start gradual, then accelerate toward 1
-
-// Scale into 1..MAX_STEP_BURST steps
-const burst = 1 + eased * (MAX_STEP_BURST - 1);
-
-
-    // Map level to 64 discrete steps; wheel up (deltaY<0) increases level
-    const curLevel = beam.getLevel?.() ?? 0;
-    const curStep  = Math.round(curLevel * (CONT_STEPS - 1));
-    const dirSteps = (e.deltaY < 0 ? +1 : -1) * burst;
-    let nextStep   = Math.max(0, Math.min(CONT_STEPS - 1, curStep + dirSteps));
-    const nextLvl  = nextStep / (CONT_STEPS - 1);
-
-    // Apply exact delta via adjustLevel (keeps API)
-    const dLevel = nextLvl - curLevel;
-    if (dLevel !== 0) beam.adjustLevel(dLevel);
-
-    // Prevent page scroll while aiming
-    e.preventDefault();
+    e.preventDefault();  // avoid page scroll
     return;
   }
 
-  // --- Discrete family: keep original feel but with mild momentum snap ---
-  // Direction change slows down by resetting accumulator slightly
-  if (wheel.dir !== 0 && sign !== wheel.dir) wheel.acc *= 0.25;
-  wheel.dir = sign;
-
-  wheel.acc += e.deltaY;
-  while (wheel.acc <= -WHEEL_STEP) { beam.modeUp(1);   wheel.acc += WHEEL_STEP; }
-  while (wheel.acc >=  WHEEL_STEP) { beam.modeDown(1); wheel.acc -= WHEEL_STEP; }
-}, { passive: false }); // passive:false so we can preventDefault() in continuous
-
+  // --- discrete family: simple notch cycling (unchanged)
+  wheelCtrl.discAcc += e.deltaY;
+  while (wheelCtrl.discAcc <= -WHEEL_STEP) { beam.modeUp(1);   wheelCtrl.discAcc += WHEEL_STEP; }
+  while (wheelCtrl.discAcc >=  WHEEL_STEP) { beam.modeDown(1); wheelCtrl.discAcc -= WHEEL_STEP; }
+}, { passive: false });
 
 
 // --- Game state (pause/death) ---
@@ -253,6 +240,43 @@ function frame(now) {
       state.dead = true;
     }
   }
+  // --- Integrate heavy swivel feel (continuous only)
+  if (!state.paused && !state.dead && typeof beam.getFamily === "function" && beam.getFamily() === "continuous") {
+    // decay torque over time
+    wheelCtrl.torque *= Math.exp(-TORQUE_DECAY_HZ * dt);
+
+    // torque → accel (steps/sec^2), then apply friction to velocity
+    const gain  = ease01(Math.abs(wheelCtrl.torque));        // 0..1
+    const accel = Math.sign(wheelCtrl.torque) * (gain / INERTIA) * 1000; // scaled
+    wheelCtrl.vel += accel * dt;
+    wheelCtrl.vel *= Math.exp(-VEL_DAMPING_HZ * dt);
+
+    // clamp velocity
+    if (wheelCtrl.vel >  VEL_MAX) wheelCtrl.vel =  VEL_MAX;
+    if (wheelCtrl.vel < -VEL_MAX) wheelCtrl.vel = -VEL_MAX;
+
+    // integrate velocity into quantized level steps
+    wheelCtrl.accSteps += wheelCtrl.vel * dt;
+    const whole = (wheelCtrl.accSteps > 0) ? Math.floor(wheelCtrl.accSteps)
+                                           : Math.ceil(wheelCtrl.accSteps);
+    if (whole !== 0 && typeof beam.getLevel === "function") {
+      const curLevel = beam.getLevel() || 0;
+      const curStep  = Math.round(curLevel * (CONT_STEPS - 1));
+      const nextStep = Math.max(0, Math.min(CONT_STEPS - 1, curStep + whole));
+      if (nextStep !== curStep) {
+        const nextLevel = nextStep / (CONT_STEPS - 1);
+        beam.adjustLevel(nextLevel - curLevel);
+      }
+      wheelCtrl.accSteps -= whole; // keep fractional residue
+    }
+
+    // deadzone cleanup
+    if (Math.abs(wheelCtrl.vel) < 0.01 && Math.abs(wheelCtrl.torque) < 0.01) {
+      wheelCtrl.vel = 0; wheelCtrl.torque = 0; wheelCtrl.accSteps = 0;
+    }
+  }
+
+
 
   // Aim beam at mouse (screen center = player)
   const aimX = mouseX / devicePixelRatio - w / 2;

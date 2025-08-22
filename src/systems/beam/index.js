@@ -117,7 +117,16 @@ function sampleContinuousEnvelope(origin, dir, L) {
   /** @type {{x:number,y:number,r:number}[]} */
   const circles = [];
 
-  if (L <= 0.05) return circles;
+  if (L <= 0.05) {
+    // Show a tiny bubble that scales up with L (matches hitbox)
+    const base = 6; // px minimum so it's visible
+    const r = base + (BeamParams.bubbleRadius * 0.25) * (L / 0.05);
+    // uses outer T and TILE_PAD
+
+    circles.push({ x: origin.x, y: origin.y, r: r + TILE_PAD });
+    return circles;
+  }
+
 
   if (L <= 0.3) {
     const r = 16 + (BeamParams.bubbleRadius - 16) * (L / 0.3);
@@ -191,6 +200,9 @@ export function raycast(origin, dir, params = {}) {
       const n = miasma.clearArea(c.x, c.y, c.r, BeamParams.budgetPerStamp);
       clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
+     // (seed moved to game.js to avoid intra‑module self‑imports)
+
+
     return { hits: [], clearedFog };
   }
 
