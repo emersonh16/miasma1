@@ -94,22 +94,18 @@ function updateTwinkles(dt) {
 }
 
 function drawTwinkles(ctx) {
-  ctx.globalCompositeOperation = "lighter";
+  // DEBUG: make twinkles unmistakable for visibility checks
+  ctx.globalCompositeOperation = "source-over"; // draw directly (no additive)
   ctx.fillStyle = TW.color;
-  const n = TW.max;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < TW.max; i++) {
     if (!_tw.use[i]) continue;
-    const t = _tw.age[i] / _tw.life[i];
-    // pulse (ease in/out)
-    const a = (t < 0.5) ? (t * 2) : (1 - (t - 0.5) * 2);
-    ctx.globalAlpha = a * 0.4 + 0.06;  // ↓ dimmer so gameplay stays readable
-
-    const s = _tw.size[i];
+    ctx.globalAlpha = 1;                 // fully opaque for debug
+    const s = _tw.size[i] * 2;           // larger so they pop
     ctx.fillRect(_tw.x[i] - s * 0.5, _tw.y[i] - s * 0.5, s, s);
   }
   ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = "source-over";
 }
+
 
   
 
