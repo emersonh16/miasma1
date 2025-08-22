@@ -81,30 +81,32 @@ addEventListener("mousemove", (e) => {
   mouseY = e.clientY * devicePixelRatio;
 });
 
-// --- Wheel → “heavy swivel” controller (torque → velocity → level)
+// --- Wheel → controller
 const WHEEL_STEP = 100;
 const CONT_STEPS = 256;
 
-// --- AGGRO+ (snappy but controlled)
-const TORQUE_IMPULSE   = 3.6;  // keep punch
-const TORQUE_DECAY_HZ  = 3.8;  // tiny bit more stick
-const INERTIA          = 36;   // spins up a hair faster
-const VEL_DAMPING_HZ   = 1.1;  // tiny extra baseline drag
-const VEL_MAX          = 1800; // same headroom
-const REVERSE_BRAKE    = 0.42; // crisper hard‑stop
+// AGGRO “More coast”
+const TORQUE_IMPULSE   = 3.6;
+const TORQUE_DECAY_HZ  = 3.6;   // ↓ hangs onto torque longer
+const INERTIA          = 36;
+const VEL_DAMPING_HZ   = 0.95;  // ↓ baseline drag
+const VEL_MAX          = 1850;
+const REVERSE_BRAKE    = 0.36;  // ↓ softer flip
 
-// Immediate drag tied to flick speed
+// Flick‑drag
 const DRAG_BASE_HZ     = 0.0;
-const DRAG_K_HZ        = 3.6;  // stronger first‑beat bite after big flick
-const DRAG_DECAY_HZ    = 5.5;  // fades a touch slower
+const DRAG_K_HZ        = 3.2;
+const DRAG_DECAY_HZ    = 5.0;
 
-// Minimal “kick”
-const KICK_VEL_STEPS   = 120;  // keeps first flick visible, slightly less jumpy
+// Kick
+const KICK_VEL_STEPS   = 140;   // keep punchy
 
-// --- Min‑alive stop + extra‑notch‑to‑Off ---
-const MIN_ACTIVE_STEP   = 7;   // tiny bubble, still readable
+// Min‑alive + Off
+const MIN_ACTIVE_STEP   = 7;
 const MIN_ACTIVE_LEVEL  = MIN_ACTIVE_STEP / (CONT_STEPS - 1);
-const OFF_DBLCLICK_MS   = 320; // forgiving up‑to‑off window
+const OFF_DBLCLICK_MS   = 320;
+
+
 
 
 
@@ -333,7 +335,7 @@ function frame(now) {
 
     // --- BRAKE (coast): only when user isn’t pushing
     if (Math.abs(wheelCtrl.torque) < 0.001) {
-      const brake = 0.90;  // gentler coast; raise toward 0.95 to coast longer, lower to stop faster
+      const brake = 0.92;  // gentler coast; raise toward 0.95 to coast longer, lower to stop faster
       wheelCtrl.vel *= (1 - (1 - brake) * dt * 60);
     }
 
