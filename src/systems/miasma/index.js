@@ -6,6 +6,15 @@
 
 import { worldToTile, mod } from "../../core/coords.js";
 import { config } from "../../core/config.js";
+import * as beam from "../beam/index.js";
+
+function getBeamIntensity() {
+  const mode = beam.getMode(); // "laser", "cone", "bubble", "off"
+  if (mode === "laser") return 1.0;
+  if (mode === "cone")  return 0.5;
+  if (mode === "bubble") return 0.2;
+  return 0.0; // off
+}
 
 // ---- Config knobs ----
 const MC = (config.miasma ?? {});
@@ -25,11 +34,11 @@ const TW = (() => {
   const t = (MC.twinkle ?? {});
   return {
     max: t.max ?? 160,                              // ↓ fewer total
-    spawnChancePerCleared: t.spawnChancePerCleared ?? 0.15, // ↓ fewer spawns
-    moteSize:  [1, 2],                              // ↓ tiny motes
-    wispSize:  [2, 3],                              // ↓ small wisps
-    moteLife:  [0.18, 0.35],                        // ↓ very short
-    wispLife:  [0.25, 0.60],                        // ↓ short
+spawnChancePerCleared: 1.0, // every cleared tile spawns
+moteSize: [3, 5],
+wispSize: [5, 8],
+moteLife: [1, 2],
+wispLife: [1.5, 2.5],                      // ↓ short
     jitter:    6,                                   // slight wiggle
     color:     "#66ffe5",                           // light teal
   };
@@ -94,6 +103,7 @@ function drawTwinkles(ctx) {
     // pulse (ease in/out)
     const a = (t < 0.5) ? (t * 2) : (1 - (t - 0.5) * 2);
     ctx.globalAlpha = a * 0.4 + 0.06;  // ↓ dimmer so gameplay stays readable
+
     const s = _tw.size[i];
     ctx.fillRect(_tw.x[i] - s * 0.5, _tw.y[i] - s * 0.5, s, s);
   }
@@ -266,9 +276,11 @@ if (!clearedMap.has(k)) {
   S.stats.clearCalls++;
   checkFrontier(ftx, fty);
   updateNeighbors(ftx, fty);
-  if (Math.random() < TW.spawnChancePerCleared) {
-    spawnTwinkle(centerX, centerY);
-  }
+const beamBoost = getBeamIntensity(); // 0..1
+if (Math.random() < TW.spawnChancePerCleared * (1 + beamBoost)) {
+  spawnTwinkle(centerX, centerY);
+}
+
       }
 
 
@@ -285,9 +297,16 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
   S.stats.regrow = 0;
   S.stats.drawHoles = 0;
   S.stats.forgotOffscreen = 0;
+  
 
   // PR3: advance twinkles
   updateTwinkles(dt);
+
+
+  // Debug: peek at beam intensity (0..1)
+if (config.flags.devhud) {
+  console.log("Beam intensity:", getBeamIntensity().toFixed(2));
+}
 
 
 
