@@ -246,9 +246,12 @@ export function raycast(origin, dir, params = {}) {
   // Laser: clears fog AND damages enemies along the beam over time
   if (mode === "laser") {
     // --- visual/clear pass (unchanged) ---
-    const Tz = miasma.getTileSize();
-    const MIN_JUMP_PX = Math.max(12, Tz * 2);
-    const len = Math.max(BeamParams.coneLength + MIN_JUMP_PX, 64);
+   // --- DAMAGE pass (laser only) --- (context above)
+const Tz = miasma.getTileSize();
+const MIN_JUMP_PX = Math.max(12, Tz * 2);
+// Use dedicated laser length; still ensure it's not absurdly short
+const len = Math.max(BeamParams.laserLength, BeamParams.coneLength + MIN_JUMP_PX, 64);
+
 
     const ux = Math.cos(dir),  uy = Math.sin(dir); // forward
     const nx = -Math.sin(dir), ny = Math.cos(dir); // normal
@@ -471,11 +474,13 @@ export function draw(ctx, cam, player) {
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
-  } else if (mode === "laser") {
-    const Tz = miasma.getTileSize();
-    const MIN_JUMP_PX = Math.max(12, Tz * 2);
-    const len = Math.max(BeamParams.coneLength + MIN_JUMP_PX, 64);
-    const thick = BeamParams.laserThickness;
+ } else if (mode === "laser") {
+  const Tz = miasma.getTileSize();
+  const MIN_JUMP_PX = Math.max(12, Tz * 2);
+  // Draw length matches hitbox length
+  const len = Math.max(BeamParams.laserLength, BeamParams.coneLength + MIN_JUMP_PX, 64);
+  const thick = BeamParams.laserThickness;
+
     ctx.lineCap = "round";
 
     ctx.strokeStyle = `rgba(${LIGHT_RGB},0.25)`;
