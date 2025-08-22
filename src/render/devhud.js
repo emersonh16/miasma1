@@ -15,6 +15,15 @@ const SPEED_MAX = 120;
 const SPEED_STEPS = 100;
 const SMOOTH = 0.18;
 
+//helper
+function norm01(val, lo, hi) {
+  const d = hi - lo;
+  if (!Number.isFinite(d) || d <= 0) return 0;
+  const t = (val - lo) / d;
+  return Math.max(0, Math.min(1, t));
+}
+
+
 // positions
 const geom = {
   panel:  { x: 0, y: 0, w: PANEL_W, h: PANEL_H + 108 },
@@ -130,12 +139,13 @@ function updateBeamFromMouse(mx, which) {
 
   // [rect, min, max, key, formatter]
   const map = {
-    bubbleMin: [geom.bBubbleMin, 18, 256,  "bubbleMinRadius", (v) => `${Math.round(v*2)} px Ø`], // 36 px Ø min
-    bubbleMax: [geom.bBubbleMax, 48, 512,  "bubbleMaxRadius", (v) => `${Math.round(v*2)} px Ø`], // 96 px Ø min
-    laserL:    [geom.bLaserL,   233, 1024, "laserLength",     (v) => `${Math.round(v)} px`],     // 233 px min
-    laserT:    [geom.bLaserT,     4,   48, "laserThickness",  (v) => `${v.toFixed(1)} px`],      // 4.0 px min
-    coneL:     [geom.bConeL,    128,  512, "coneLength",      (v) => `${Math.round(v)} px`],     // 128 px min
+    bubbleMin: [geom.bBubbleMin, 123, 492, "bubbleMinRadius", (v) => `${Math.round(v*2)} px Ø`],
+    bubbleMax: [geom.bBubbleMax, 164, 328, "bubbleMaxRadius", (v) => `${Math.round(v*2)} px Ø`],
+    laserL:    [geom.bLaserL,    656, 1312,"laserLength",     (v) => `${Math.round(v)} px`],
+    laserT:    [geom.bLaserT,      15,   31, "laserThickness",(v) => `${v.toFixed(1)} px`],
+    coneL:     [geom.bConeL,      287,  574, "coneLength",    (v) => `${Math.round(v)} px`],
   };
+
 
 
   const row = map[which];
@@ -233,8 +243,8 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
     : { bubbleMinRadius: 48, bubbleMaxRadius: 128, laserLength: 512, laserThickness: 12, coneLength: 224, coneAngleTotalDeg: 64 };
 
   const x0 = geom.panel.x + 30;
-  let y0 = geom.slider.y + 40;
-  const gap = 22;
+  let y0 = geom.slider.y + 50;   // push further down from wind slider
+  const gap = 28;                // larger vertical gap between sliders
 
   geom.bBubbleMin.x = x0; geom.bBubbleMin.y = y0; y0 += gap;
   geom.bBubbleMax.x = x0; geom.bBubbleMax.y = y0; y0 += gap;
@@ -243,16 +253,39 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
   geom.bConeL.x     = x0; geom.bConeL.y     = y0;
 
 
+
   // section label
   ctx.fillStyle = "#ccc";
-  ctx.fillText("Beam (discrete)", geom.panel.x + 8, geom.slider.y + 24);
+  ctx.fillText("Beam", geom.panel.x + 8, geom.slider.y + 24);
 
-  // draw sliders
-  drawSlider(ctx, geom.bBubbleMin, (BP.bubbleMinRadius - 18) / (256 - 18),  "Bubble Min", `${Math.round(BP.bubbleMinRadius * 2)} px Ø`);
-  drawSlider(ctx, geom.bBubbleMax, (BP.bubbleMaxRadius - 48) / (512 - 48),  "Bubble Max", `${Math.round(BP.bubbleMaxRadius * 2)} px Ø`);
-  drawSlider(ctx, geom.bLaserL,    (BP.laserLength - 233) / (1024 - 233),   "Laser Len",  `${Math.round(BP.laserLength)} px`);
-  drawSlider(ctx, geom.bLaserT,    (BP.laserThickness - 4) / (48 - 4),      "Laser Thick",`${BP.laserThickness.toFixed(1)} px`);
-  drawSlider(ctx, geom.bConeL,     (BP.coneLength - 128) / (512 - 128),     "Cone Len",   `${Math.round(BP.coneLength)} px`);
+  // draw sliders (scaled for BubbleMax=328)
+  drawSlider(
+    ctx, geom.bBubbleMin,
+    norm01(BP.bubbleMinRadius, 123, 492),
+    "Bubble Min", `${Math.round(BP.bubbleMinRadius * 2)} px Ø`
+  );
+  drawSlider(
+    ctx, geom.bBubbleMax,
+    norm01(BP.bubbleMaxRadius, 164, 328),
+    "Bubble Max", `${Math.round(BP.bubbleMaxRadius * 2)} px Ø`
+  );
+  drawSlider(
+    ctx, geom.bLaserL,
+    norm01(BP.laserLength, 656, 1312),
+    "Laser Len", `${Math.round(BP.laserLength)} px`
+  );
+  drawSlider(
+    ctx, geom.bLaserT,
+    norm01(BP.laserThickness, 15, 31),
+    "Laser Thick", `${BP.laserThickness.toFixed(1)} px`
+  );
+  drawSlider(
+    ctx, geom.bConeL,
+    norm01(BP.coneLength, 287, 574),
+    "Cone Len", `${Math.round(BP.coneLength)} px`
+  );
+
+
 
 
   // --- Miasma toggle button ---
