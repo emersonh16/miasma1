@@ -20,7 +20,90 @@ const RIM_WIDTH    = (MC.rimWidth ?? 1.5);             // ↑ slightly thicker
 const RIM_MAX_PERF = (MC.rimMaxPerFrame ?? 3000);      // cap strokes per frame
 
 
+// --- PR3: Twinkle motes/wisps (pooled, additive) ---
+const TW = (() => {
+  const t = (MC.twinkle ?? {});
+  return {
+    max: t.max ?? 220,                              // total particle cap
+    spawnChancePerCleared: t.spawnChancePerCleared ?? 0.12, // prob per new cleared tile
+    // sizes in pixels
+    moteSize:  t.moteSize  ?? [1, 2],
+    wispSize:  t.wispSize  ?? [3, 5],
+    // lifetimes in seconds
+    moteLife:  t.moteLife  ?? [0.5, 1.1],
+    wispLife:  t.wispLife  ?? [0.9, 1.8],
+    // velocity jitter (px/sec)
+    jitter:    t.jitter    ?? 10,
+    // color (light, additive)
+    color:     t.color     ?? "#c8a8ff",
+  };
+})();
 
+// particle pool (module scope)
+const _tw = {
+  x: new Float32Array(TW.max),
+  y: new Float32Array(TW.max),
+  vx: new Float32Array(TW.max),
+  vy: new Float32Array(TW.max),
+  size: new Float32Array(TW.max),
+  age: new Float32Array(TW.max),
+  life: new Float32Array(TW.max),
+  use: new Uint8Array(TW.max),
+  cursor: 0,
+};
+
+function _rand(min, max) { return min + Math.random() * (max - min); }
+
+function spawnTwinkle(wx, wy) {
+  // 80% motes, 20% wisps
+  const isWisp = (Math.random() < 0.2);
+  const size = isWisp ? _rand(TW.wispSize[0], TW.wispSize[1])
+                      : _rand(TW.moteSize[0], TW.moteSize[1]);
+  const life = isWisp ? _rand(TW.wispLife[0], TW.wispLife[1])
+                      : _rand(TW.moteLife[0], TW.moteLife[1]);
+  const i = _tw.cursor;
+  _tw.cursor = (_tw.cursor + 1) % TW.max;
+  _tw.x[i] = wx + _rand(-0.5, 0.5);
+  _tw.y[i] = wy + _rand(-0.5, 0.5);
+  _tw.vx[i] = _rand(-TW.jitter, TW.jitter);
+  _tw.vy[i] = _rand(-TW.jitter, TW.jitter);
+  _tw.size[i] = size;
+  _tw.age[i] = 0;
+  _tw.life[i] = life;
+  _tw.use[i] = 1;
+}
+
+function updateTwinkles(dt) {
+  const n = TW.max;
+  for (let i = 0; i < n; i++) {
+    if (!_tw.use[i]) continue;
+    const age = _tw.age[i] + dt;
+    if (age >= _tw.life[i]) { _tw.use[i] = 0; continue; }
+    _tw.age[i] = age;
+    _tw.x[i] += _tw.vx[i] * dt;
+    _tw.y[i] += _tw.vy[i] * dt;
+  }
+}
+
+function drawTwinkles(ctx) {
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = TW.color;
+  const n = TW.max;
+  for (let i = 0; i < n; i++) {
+    if (!_tw.use[i]) continue;
+    const t = _tw.age[i] / _tw.life[i];
+    // soft pulse: ease in/out
+    const a = (t < 0.5) ? (t * 2) : (1 - (t - 0.5) * 2);
+    ctx.globalAlpha = a * 0.85 + 0.15;
+    const s = _tw.size[i];
+    ctx.fillRect(_tw.x[i] - s * 0.5, _tw.y[i] - s * 0.5, s, s);
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+}
+
+
+  
 // Off-screen behavior (in tiles)
 const OFFSCREEN_REG_PAD    = MC.offscreenRegrowPad  ?? (PAD * 6);   // regrow this far past view
 const OFFSCREEN_FORGET_PAD = MC.offscreenForgetPad ?? (PAD * 12);  // beyond this, auto-reset
@@ -173,16 +256,21 @@ export function clearArea(wx, wy, r, _amt = 64) {
       const centerY = (ty + 0.5) * TILE_SIZE;
       const dxw = centerX - wx, dyw = centerY - wy;
       if ((dxw * dxw + dyw * dyw) > r2) continue;
-           const ftx = Math.floor(tx - S.fxTiles);
-      const fty = Math.floor(ty - S.fyTiles);
-      const k = key(ftx, fty);
-      if (!clearedMap.has(k)) {
-        clearedMap.set(k, S.time);
-        cleared++; budget--;
-        S.stats.clearCalls++; // PERF: count successful clears
-        checkFrontier(ftx, fty);
-        updateNeighbors(ftx, fty);
+   const ftx = Math.floor(tx - S.fxTiles);
+const fty = Math.floor(ty - S.fyTiles);
+const k = key(ftx, fty);
+if (!clearedMap.has(k)) {
+  clearedMap.set(k, S.time);
+  cleared++; budget--;
+  S.stats.clearCalls++;
+  checkFrontier(ftx, fty);
+  updateNeighbors(ftx, fty);
+  if (Math.random() < TW.spawnChancePerCleared) {
+    spawnTwinkle(centerX, centerY);
+  }
       }
+
+
     }
   }
   return cleared;
@@ -196,6 +284,9 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
   S.stats.regrow = 0;
   S.stats.drawHoles = 0;
   S.stats.forgotOffscreen = 0;
+
+  // PR3: advance twinkles
+  updateTwinkles(dt);
 
 
 
@@ -499,6 +590,92 @@ export function draw(ctx, cam, w, h) {
     ctx.shadowColor = RIM_COLOR;
   }
 
+// --- PR3: Twinkle motes/wisps (pooled, additive) ---
+const TW = (() => {
+  const t = (MC.twinkle ?? {});
+  return {
+    max: t.max ?? 220,                       // total particle cap
+    spawnChancePerCleared: t.spawnChancePerCleared ?? 0.12, // prob per new cleared tile
+    // sizes in pixels
+    moteSize:  t.moteSize  ?? [1, 2],
+    wispSize:  t.wispSize  ?? [3, 5],
+    // lifetimes in seconds
+    moteLife:  t.moteLife  ?? [0.5, 1.1],
+    wispLife:  t.wispLife  ?? [0.9, 1.8],
+    // velocity jitter (px/sec)
+    jitter:    t.jitter    ?? 10,
+    // color (light, additive)
+    color:     t.color     ?? "#c8a8ff",
+  };
+})();
+
+// particle pool
+const _tw = {
+  x: new Float32Array(TW.max),
+  y: new Float32Array(TW.max),
+  vx: new Float32Array(TW.max),
+  vy: new Float32Array(TW.max),
+  size: new Float32Array(TW.max),
+  age: new Float32Array(TW.max),
+  life: new Float32Array(TW.max),
+  use: new Uint8Array(TW.max),
+  cursor: 0,
+};
+
+function _rand(min, max) { return min + Math.random() * (max - min); }
+
+function spawnTwinkle(wx, wy) {
+  // 80% motes, 20% wisps
+  const isWisp = (Math.random() < 0.2);
+  const size = isWisp ? _rand(TW.wispSize[0], TW.wispSize[1])
+                      : _rand(TW.moteSize[0], TW.moteSize[1]);
+  const life = isWisp ? _rand(TW.wispLife[0], TW.wispLife[1])
+                      : _rand(TW.moteLife[0], TW.moteLife[1]);
+  const i = _tw.cursor;
+  _tw.cursor = (_tw.cursor + 1) % TW.max;
+  _tw.x[i] = wx + _rand(-0.5, 0.5);
+  _tw.y[i] = wy + _rand(-0.5, 0.5);
+  _tw.vx[i] = _rand(-TW.jitter, TW.jitter);
+  _tw.vy[i] = _rand(-TW.jitter, TW.jitter);
+  _tw.size[i] = size;
+  _tw.age[i] = 0;
+  _tw.life[i] = life;
+  _tw.use[i] = 1;
+}
+
+function updateTwinkles(dt) {
+  const n = TW.max;
+  for (let i = 0; i < n; i++) {
+    if (!_tw.use[i]) continue;
+    const age = _tw.age[i] + dt;
+    if (age >= _tw.life[i]) { _tw.use[i] = 0; continue; }
+    _tw.age[i] = age;
+    _tw.x[i] += _tw.vx[i] * dt;
+    _tw.y[i] += _tw.vy[i] * dt;
+  }
+}
+
+function drawTwinkles(ctx) {
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = TW.color;
+  const n = TW.max;
+  for (let i = 0; i < n; i++) {
+    if (!_tw.use[i]) continue;
+    const t = _tw.age[i] / _tw.life[i];
+    // soft pulse: ease in/out
+    const a = (t < 0.5) ? (t * 2) : (1 - (t - 0.5) * 2);
+    ctx.globalAlpha = a * 0.85 + 0.15;
+    const s = _tw.size[i];
+    ctx.fillRect(_tw.x[i] - s * 0.5, _tw.y[i] - s * 0.5, s, s);
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+}
+
+
+
+
+
   let rimDrawn = 0;
   for (const k of frontier) {
     if (rimDrawn >= RIM_MAX_PERF) break;
@@ -524,6 +701,9 @@ export function draw(ctx, cam, w, h) {
     ctx.strokeRect(sx, sy, sw, sh);
     rimDrawn++;
   }
+
+  // PR3: draw twinkles (additive) in world space
+  drawTwinkles(ctx);
 
   // Restore normal blending & transform
   ctx.shadowBlur = prevShadowBlur;
