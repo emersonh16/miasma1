@@ -159,13 +159,18 @@ function sampleContinuousEnvelope(origin, dir, L) {
   }
 
 
-  // Laser phase
+  // Laser phase — ensure MIN laser length > MAX cone length (clean step up)
   {
     const t = (L - 0.7) / 0.3;
-    const len = 128 + (BeamParams.laserLength - 128) * t;
+    const Tz = miasma.getTileSize();
+    const LASER_MIN_MARGIN = Math.max(8, Tz * 2); // a small, visible bump past cone
+    const laserMin = Math.max(BeamParams.coneLength + LASER_MIN_MARGIN, 128);
+    const len = laserMin + (BeamParams.laserLength - laserMin) * t;
+
     const thick = 4 + (BeamParams.laserThickness - 4) * t;
     const rCore = Math.max(2, thick * 0.5 + TILE_PAD);
     const stride = Math.max(T * 1.0, rCore * 0.9);
+
     for (let d = stride; d <= len; d += stride) {
       const wx = origin.x + ux * d;
       const wy = origin.y + uy * d;
@@ -174,6 +179,7 @@ function sampleContinuousEnvelope(origin, dir, L) {
     circles.push({ x: origin.x + ux * len, y: origin.y + uy * len, r: rCore });
     return circles;
   }
+
 }
 
 
