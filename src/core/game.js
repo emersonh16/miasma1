@@ -158,20 +158,15 @@ addEventListener("wheel", (e) => {
       return;
     }
 
-    // --- Snappy multi-step ---
-    // base steps from delta magnitude (1..4)
-    const base = Math.max(1, Math.min(4, Math.floor(Math.abs(e.deltaY) / (WHEEL_STEP * 0.75)) + 1));
-    // quick-succession bonus (if this notch arrives fast after previous)
-    const dt = nowMs - (wheelCtrl.lastWheelMs || 0);
-    const bonus = (dt > 0 && dt < 120) ? 1 : 0; // feels arcade-y, still controllable
-
-    const steps = 1; // always move 1 level per notch
+     // --- 4-state stepper: one notch = one level (0..4) ---
+    const steps = 1;
     const next = Math.max(0, Math.min(4, idx + (sign > 0 ? +steps : -steps)));
 
     if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(next);
     wheelCtrl.lastWheelMs = nowMs;
     e.preventDefault();
     return;
+
   }
 
   // legacy discrete family behavior (unchanged)
