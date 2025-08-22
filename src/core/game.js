@@ -81,15 +81,10 @@ addEventListener("mousemove", (e) => {
   mouseY = e.clientY * devicePixelRatio;
 });
 
-// --- Wheel → beam mode stepper ---
+// --- Wheel → beam mode stepper (discrete only) ---
 const WHEEL_STEP = 100; // typical notch ~= 100
 let wheelAcc = 0;
 addEventListener("wheel", (e) => {
-  if (beam.getFamily() === "continuous") {
-    beam.adjustLevel(-e.deltaY * 0.001); // scroll up/down changes beam smoothly
-    return;
-  }
-
   wheelAcc += e.deltaY;
   while (wheelAcc <= -WHEEL_STEP) { beam.modeUp(1); wheelAcc += WHEEL_STEP; }
   while (wheelAcc >=  WHEEL_STEP) { beam.modeDown(1); wheelAcc -= WHEEL_STEP; }
