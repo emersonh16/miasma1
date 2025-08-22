@@ -145,7 +145,6 @@ export function getParams() { return { ...BeamParams, coneAngleTotalDeg: BeamPar
 
 function sampleContinuousEnvelope(origin, dir) {
   const T = miasma.getTileSize();
-  const TILE_PAD = T * 0.15;
   const ux = Math.cos(dir), uy = Math.sin(dir);
   const circles = [];
 
