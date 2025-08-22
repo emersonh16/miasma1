@@ -126,21 +126,29 @@ function sampleContinuousEnvelope(origin, dir, L) {
   }
 
   if (L <= 0.7) {
-    const t = (L - 0.3) / 0.4;
-    const len = 128 + (BeamParams.coneLength - 128) * t;
-    const halfA = ((64 - 48 * t) * Math.PI) / 180;
+    // Start at TOTAL 64° (half 32°) and narrow to TOTAL 4° (half 2°) as L→0.7
+    const t = (L - 0.3) / 0.4; // 0..1 within cone band
+    const halfStart = 32;      // degrees (half of 64°)
+    const halfEnd   = 2;       // degrees (half of 4°)
+    const halfAdeg  = Math.max(halfEnd, halfStart + (halfEnd - halfStart) * t);
+    const halfA     = (halfAdeg * Math.PI) / 180;
+
+    // Ensure cone length immediately exceeds bubble and grows with t
+    const baseLen = Math.max(BeamParams.bubbleRadius * 1.25, 128);
+    const len     = baseLen + (BeamParams.coneLength - baseLen) * t;
+
     const step = Math.max(T * 1.0, 6);
     for (let d = step; d <= len; d += step) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
-      const r = Math.max(4, Math.tan(halfA) * d) + TILE_PAD;
+      const r  = Math.max(4, Math.tan(halfA) * d) + TILE_PAD;
       circles.push({ x: cx, y: cy, r });
     }
-    // tip coverage
     const tipR = Math.max(4, Math.tan(halfA) * len) + TILE_PAD;
     circles.push({ x: origin.x + ux * len, y: origin.y + uy * len, r: tipR });
     return circles;
   }
+
 
   // Laser phase
   {
