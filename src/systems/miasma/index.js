@@ -4,7 +4,7 @@
 // - Density is implicit: a world tile is FOG (1) unless it's in clearedMap (0).
 // - Regrow only scans viewport + pad and spreads by adjacency w/ randomness.
 
-import { worldToTile } from "../../core/coords.js";
+import { worldToTile, mod } from "../../core/coords.js";
 import { config } from "../../core/config.js";
 
 
@@ -310,34 +310,127 @@ export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, view
   }
 }
 
-export function draw(ctx, cam, w, h) {
-  ctx.save();
-  ctx.translate(-cam.x + w/2, -cam.y + h/2);
+// --- PR1: lightweight shimmer layer (cached patterns; wind‑driven parallax) ---
+// 1) Config (must be BEFORE drawShimmer)
+const SHIM = (() => {
+  const cfg = (MC.shimmer ?? {});
+  return {
+    enabled: cfg.enabled ?? true,
+    alpha:   cfg.alpha   ?? 0.18,  // overall shimmer strength
+    layers: [
+      { size: cfg.size0 ?? 64, speed: cfg.speed0 ?? 0.0, parallax: cfg.parallax0 ?? 0.55 },
+      { size: cfg.size1 ?? 96, speed: cfg.speed1 ?? 0.0, parallax: cfg.parallax1 ?? 0.85 },
+    ],
+  };
+})();
 
+// 2) Pattern cache + maker (one per size)
+const _patCache = new Map();
+function ensurePattern(ctx, size) {
+  const key = size | 0;
+  let pat = _patCache.get(key);
+  if (pat) return pat;
+
+  const off = document.createElement("canvas");
+  off.width = off.height = key;
+  const o = off.getContext("2d", { alpha: true });
+
+  // Crystal‑ish palette: deep amethyst base + aqua flecks
+  o.fillStyle = "#501a70";            // body
+  o.fillRect(0, 0, key, key);
+
+  o.globalAlpha = 0.12;               // blotchy caustics
+  for (let i = 0; i < key * 0.7; i++) {
+    const r = 2 + ((i * 7) % 5);
+    o.beginPath();
+    o.arc((i * 37) % key, (i * 19) % key, r, 0, Math.PI * 2);
+    o.fillStyle = "#7e49b8";
+    o.fill();
+  }
+
+  o.globalAlpha = 0.22;               // brighter flecks
+  for (let i = 0; i < key * 0.35; i++) {
+    o.fillStyle = (i % 3) ? "#4be2ff" : "#9be7ff";
+    o.fillRect((i * 53) % key, (i * 29) % key, 1, 1);
+  }
+
+  pat = ctx.createPattern(off, "repeat");
+  _patCache.set(key, pat);
+  return pat;
+}
+
+
+
+/** Draw shimmer over fog body; drawn BEFORE holes so holes punch both */
+function drawShimmer(ctx, pxLeft, pxTop, pxWidth, pxHeight) {
+  if (!SHIM.enabled || SHIM.alpha <= 0) return;
+
+  // Convert wind phase (tiles) to pixels for parallax anchor
+  const windPXx = S.fxTiles * TILE_SIZE;
+  const windPXy = S.fyTiles * TILE_SIZE;
+
+  const t = S.time;
+
+  for (let i = 0; i < SHIM.layers.length; i++) {
+    const L = SHIM.layers[i];
+    const size = Math.max(16, L.size | 0);
+    const par = Math.max(0, Math.min(1, Number(L.parallax) || 0.5));
+    const pat = ensurePattern(ctx, size);
+
+    // Subtle extra drift (independent of wind) to keep life when calm
+    const driftX = (L.speed || 0) * t * 0.5;
+    const driftY = (L.speed || 0) * t * 0.35;
+
+    // Offset so pattern is WORLD‑aligned + advected downwind with parallax
+    const ox = -Math.floor(mod(pxLeft  + windPXx * par + driftX, size));
+    const oy = -Math.floor(mod(pxTop   + windPXy * par + driftY, size));
+
+    ctx.save();
+    ctx.globalAlpha = SHIM.alpha * (1 + 0.15 * Math.sin(t * (0.7 + i * 0.4)));
+    ctx.translate(ox, oy);
+    ctx.fillStyle = pat;
+    ctx.fillRect(-size, -size, pxWidth + size * 2, pxHeight + size * 2);
+    ctx.restore();
+  }
+}
+
+export function draw(ctx, cam, w, h) {
+  // Enter world space (player centered)
+  ctx.save();
+  ctx.translate(-cam.x + w / 2, -cam.y + h / 2);
+
+  // Tile window around the view with PAD
   const viewCols = Math.ceil(w / TILE_SIZE);
   const viewRows = Math.ceil(h / TILE_SIZE);
-  const left   = Math.floor((cam.x - w/2) / TILE_SIZE) - PAD;
-  const top    = Math.floor((cam.y - h/2) / TILE_SIZE) - PAD;
-  const right  = left + viewCols + PAD*2;
-  const bottom = top  + viewRows + PAD*2;
+  const left     = Math.floor((cam.x - w / 2) / TILE_SIZE) - PAD;
+  const top      = Math.floor((cam.y - h / 2) / TILE_SIZE) - PAD;
+  const right    = left + viewCols + PAD * 2;
+  const bottom   = top  + viewRows + PAD * 2;
 
+  // Pixel bounds for the fill
   const pxLeft   = left   * TILE_SIZE;
   const pxTop    = top    * TILE_SIZE;
   const pxWidth  = (right - left) * TILE_SIZE;
   const pxHeight = (bottom - top) * TILE_SIZE;
 
-  // 1) Solid purple fog fill
+  // 1) Solid fog body
   ctx.fillStyle = FOG_COLOR;
   ctx.fillRect(pxLeft, pxTop, pxWidth, pxHeight);
 
-  // 2) Punch visible holes (absolute tile coords) — RLE rows
+  // 1b) Optional shimmer layer (only if helper exists and is enabled)
+  if (typeof drawShimmer === "function") {
+    drawShimmer(ctx, pxLeft, pxTop, pxWidth, pxHeight);
+  }
+
+  // 2) Punch visible holes — merge contiguous runs per row (RLE)
   ctx.globalCompositeOperation = "destination-out";
   ctx.beginPath();
 
-  const offX = Math.floor(S.fxTiles), offY = Math.floor(S.fyTiles);
+  const offX = Math.floor(S.fxTiles);
+  const offY = Math.floor(S.fyTiles);
   const rows = new Map(); // ty -> number[] of tx
 
-  // Bucket visible tiles by row
+  // Collect tiles that are cleared and inside our scan window
   for (const k of clearedMap.keys()) {
     const [fx, fy] = k.split(",").map(Number);
     const tx = fx + offX;
@@ -348,11 +441,12 @@ export function draw(ctx, cam, w, h) {
     xs.push(tx);
   }
 
-  // Build rects per row by merging contiguous runs
+  // Emit rects for contiguous runs within each row
   let tilesDrawn = 0;
   for (const [ty, xs] of rows) {
-    xs.sort((a,b) => a - b);
+    xs.sort((a, b) => a - b);
     let runStart = null, prev = null;
+
     for (let i = 0; i < xs.length; i++) {
       const x = xs[i];
       if (runStart === null) { runStart = prev = x; continue; }
@@ -366,7 +460,9 @@ export function draw(ctx, cam, w, h) {
 
       runStart = prev = x;
     }
+
     if (tilesDrawn >= MAX_HOLES_PER_FRAME) break;
+
     if (runStart !== null) {
       const runLen = prev - runStart + 1;
       ctx.rect(runStart * TILE_SIZE, ty * TILE_SIZE, runLen * TILE_SIZE, TILE_SIZE);
@@ -374,10 +470,11 @@ export function draw(ctx, cam, w, h) {
       if (tilesDrawn >= MAX_HOLES_PER_FRAME) break;
     }
   }
+
   if (tilesDrawn > 0) ctx.fill();
   S.stats.drawHoles = tilesDrawn;
 
-  // restore normal blending & transform for the rest of the frame
+  // Restore normal blending & transform
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
 }
