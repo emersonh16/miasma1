@@ -12,8 +12,8 @@ export function makeEnemy(x, y, kind = "slime") {
     speed: 40,
     vx: 0,
     vy: 0,
-    health: 10,
-    maxHealth: 10,
+    health: 3,
+    maxHealth: 3,
   };
 }
 
