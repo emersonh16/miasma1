@@ -135,13 +135,13 @@ addEventListener("wheel", (e) => {
   const family = (typeof beam.getFamily === "function") ? beam.getFamily() : "discrete";
   const sign = (e.deltaY > 0) ? +1 : -1; // ↓ attack (toward laser), ↑ retreat (toward off)
 
-   if (family === "continuous") {
+  if (family === "continuous") {
     const nowMs = performance.now();
-    const idx = (typeof beam.getLevelIndex === "function") ? beam.getLevelIndex() : 0; // 0..4
+    const idx = (typeof beam.getLevelIndex === "function") ? beam.getLevelIndex() : 0; // 0..3
 
-    // 4-state stepper: one notch = one level (0→1→2→3→4 and back)
+    // 3 transitions (4 states): 0=OFF → 1=MAX BUBBLE → 2=CONE → 3=LASER
     const steps = 1;
-    const next = Math.max(0, Math.min(4, idx + (sign > 0 ? +steps : -steps)));
+    const next = Math.max(0, Math.min(3, idx + (sign > 0 ? +steps : -steps)));
 
     if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(next);
     wheelCtrl.lastWheelMs = nowMs;

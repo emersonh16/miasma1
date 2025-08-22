@@ -42,43 +42,33 @@ const BeamParams = {
   budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
 };
 
-const LEVELS = 4; // 0=OFF, 1=small bubble, 2=max bubble, 3=min cone, 4=laser
+// 4 continuous states: 0=OFF, 1=MAX BUBBLE, 2=CONE, 3=LASER
 const state = { modeIndex: 1, angle: 0, family: "continuous", levelIndex: 0 };
 
 // --- Smooth display index (float) that eases toward levelIndex ---
-let _smoothIdx = 0;                 // float 0..4
+let _smoothIdx = 0;                 // float 0..3
 let _lastSmoothMs = performance.now();
 const SMOOTH_HZ = 16;
 
-
+// Exponential ease toward the integer levelIndex; returns float 0..3
 function _advanceSmooth() {
   const now = performance.now();
   const dt = Math.max(0, (now - _lastSmoothMs) / 1000);
   _lastSmoothMs = now;
-
-  // exponential approach toward the integer levelIndex
-  const target = getLevelIndex();
+  const target = state.levelIndex | 0;
   const k = 1 - Math.exp(-SMOOTH_HZ * dt); // 0..1
   _smoothIdx = _smoothIdx + (target - _smoothIdx) * k;
-
-  return _smoothIdx; // float 0..16
+  return _smoothIdx;
 }
 
+export function getLevelIndex() { return state.levelIndex | 0; }          // int 0..3
+export function setLevelIndex(i) { state.levelIndex = Math.max(0, Math.min(3, (i|0))); }
 
-export function getLevelIndex() { return state.levelIndex | 0; }          // int 0..16
-export function setLevelIndex(i) { state.levelIndex = Math.max(0, Math.min(16, (i|0))); }
-export function stepLevel(di = 1) { setLevelIndex(getLevelIndex() + (di|0)); }
-
-// legacy no-ops to avoid breaking callers; keep if something still calls adjustLevel/getLevel
-export function adjustLevel(delta) {
-  // convert any +/- delta into ±1 step (keeps old callers from breaking)
-  if (!Number.isFinite(delta) || delta === 0) return;
-  stepLevel(delta > 0 ? +1 : -1);
-}
 export function getLevel() {
-  // normalized (0..1) view if some UI reads it
-  return getLevelIndex() / LEVELS;
+  // normalized (0..1) if a UI wants it (0..3 mapped to 0..1)
+  return (state.levelIndex | 0) / 3;
 }
+
 
 
 // perf stats (updated each raycast)
@@ -142,92 +132,54 @@ export function setParams(patch = {}) {
 }
 export function getParams() { return { ...BeamParams, coneAngleTotalDeg: BeamParams.coneHalfAngleDeg * 2 }; }
 
-
 function sampleContinuousEnvelope(origin, dir) {
   const T = miasma.getTileSize();
   const ux = Math.cos(dir), uy = Math.sin(dir);
   const circles = [];
 
   // use smoothed float index for softer transitions
-  const idxF = _advanceSmooth();     // float 0..16
+  const idxF = _advanceSmooth();     // float 0..3
 
-  // OFF
+  // 0 = OFF
   if (idxF <= 0.001) return circles;
 
-    // idxF ranges 0..4
-  // 0 = off
-  if (idxF <= 0.001) return circles;
-
-  // 1 = small bubble
+  // 0→1 : grow bubble up to MAX BUBBLE
   if (idxF <= 1.0) {
-    const r = 16; // tight radius
+    const t = idxF - 0.0; // 0..1
+    const r = Math.max(2, BeamParams.bubbleRadius * t);
     circles.push({ x: origin.x, y: origin.y, r });
     return circles;
   }
 
-  // Blend 1→2 = small→max bubble
+  // 1→2 : blend MAX BUBBLE → CONE
   if (idxF <= 2.0) {
     const t = idxF - 1.0; // 0..1
-    const r0 = 16, r1 = BeamParams.bubbleRadius;
-    const r = r0 + (r1 - r0) * t;
-    circles.push({ x: origin.x, y: origin.y, r });
-    return circles;
-  }
+    // shrink bubble while extending a cone
+    const rBubble = BeamParams.bubbleRadius * (1.0 - t);
+    if (rBubble > 2) circles.push({ x: origin.x, y: origin.y, r: rBubble });
 
-  // Blend 2→3 = bubble → wide cone (pure cone silhouette; no tube)
-  if (idxF <= 3.0) {
-    const t = idxF - 2.0; // 0..1
-    // half-angle eases from a bit wider to your wide-cone target
-    const halfAdeg0 = 40, halfAdeg1 = 32;
-    const halfAdeg  = halfAdeg0 + (halfAdeg1 - halfAdeg0) * t;
-    const halfA     = (halfAdeg * Math.PI) / 180;
-
-    const len  = BeamParams.coneLength;
+    const halfAdeg = 32; // wide cone target
+    const halfA = (halfAdeg * Math.PI) / 180;
+    const len  = BeamParams.coneLength * t;
     const step = Math.max(T * 1.0, 6);
-
-    // grow cone length from 0 → len; avoids a fat rounded tube
-    const L = Math.max(step, len * t);
-    for (let d = step; d <= L; d += step) {
+    for (let d = step; d <= len; d += step) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
       const rr = Math.max(2, Math.tan(halfA) * d);
       circles.push({ x: cx, y: cy, r: rr });
     }
-    // tip at current L for a clean cone cap
-    circles.push({ x: origin.x + ux * L, y: origin.y + uy * L, r: Math.max(2, Math.tan(halfA) * L) });
     return circles;
   }
 
-  // Blend 3→4 = cone narrows smoothly to laser
+  // 2→3 : CONE → LASER (narrowing cone)
   {
-    const t = idxF - 3.0; // 0..1
+    const t = idxF - 2.0; // 0..1
     const halfAdeg0 = 32, halfAdeg1 = 0.5;
     const halfAdeg  = halfAdeg0 + (halfAdeg1 - halfAdeg0) * t;
     const halfA     = (halfAdeg * Math.PI) / 180;
 
     const len  = BeamParams.coneLength;
     const step = Math.max(T * 1.0, 6);
-
-    for (let d = step; d <= len; d += step) {
-      const cx = origin.x + ux * d;
-      const cy = origin.y + uy * d;
-      const rr = Math.max(2, Math.tan(halfA) * d);
-      circles.push({ x: cx, y: cy, r: rr });
-    }
-    circles.push({ x: origin.x + ux * len, y: origin.y + uy * len, r: Math.max(2, Math.tan(halfA) * len) });
-    return circles;
-  }
-
-
-  // Cone smoothly narrows all the way to razor-thin at max level (acts like laser)
-  {
-    const t = Math.max(0, Math.min(1, (idxF - 6) / (16 - 6))); // 6..16
-    const halfStart = 32, halfEnd = 0.5; // deg → collapse to near zero
-    const halfAdeg  = halfStart + (halfEnd - halfStart) * t;
-    const halfA     = (halfAdeg * Math.PI) / 180;
-
-    const len   = BeamParams.coneLength;
-    const step  = Math.max(T * 1.0, 6);
     for (let d = step; d <= len; d += step) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
@@ -236,10 +188,8 @@ function sampleContinuousEnvelope(origin, dir) {
     }
     return circles;
   }
-
-
-
 }
+
 
 
 
