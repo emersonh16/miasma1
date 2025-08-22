@@ -273,7 +273,7 @@ export function raycast(origin, dir, params = {}) {
       const tProj = vx * ux + vy * uy;         // distance along beam
       if (tProj < 0 || tProj > len) continue;  // outside segment
       // Perp distance to beam centerline — expand by enemy radius so it "feels" like the visual
-      const perp = Math.abs(vx * ny - vy * nx);
+      const perp = Math.abs(vx * uy - vy * ux);
       const er = (e.r ?? 0);
       if (perp <= rCore + er) {
         e.health -= LASER_DPS * dt;
