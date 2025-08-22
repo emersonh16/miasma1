@@ -1,5 +1,7 @@
 import { worldToTile } from "../../core/coords.js";
 import { config } from "../../core/config.js";
+import { getRockColor, getBiomeId } from "../../world/biomes/index.js";
+
 
 // --- Config knobs ---
 // --- Config knobs ---
@@ -205,7 +207,8 @@ export function draw(ctx, cam, viewW, viewH) {
   const tx1 = Math.floor((cam.x + viewW/2) / TILE_SIZE);
   const ty1 = Math.floor((cam.y + viewH/2) / TILE_SIZE);
 
-  ctx.fillStyle = "#555";
+ctx.fillStyle = getRockColor(getBiomeId());
+
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) {
       if (rockTiles.has(tx + "," + ty)) {

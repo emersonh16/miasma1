@@ -1,13 +1,18 @@
 // src/world/biomes/index.js
-// Bare-bones biomes: ground color toggle + randomize/cycle helpers.
+// Biomes: ground color toggle + randomize/cycle helpers.
 
 // --- Registry: add/remove biomes here ---
 export const BIOMES = {
-  lava:      { name: "Lava Wastes",     ground: "#2b0d0d" },
-  swamp:     { name: "Swamp",           ground: "#223322" },
-  mountain:  { name: "Mountain Range",  ground: "#6b6b6b" },
-  desert:    { name: "Desert",          ground: "#e3d6a3" },
-  snow:      { name: "Snowfields",      ground: "#f3f7fb" },
+  ice:        { name: "Ice Plateau",      ground: "#86dff0" },
+  saltflats:  { name: "Salt Flats",       ground: "#f8f8f8" },
+  volcanic:   { name: "Volcanic",         ground: "#2b0d0d" },
+  lava:       { name: "Lava Wastes",      ground: "#2b0d0d" },
+  swamp:      { name: "Swamp",            ground: "#223322" },
+  crystal:    { name: "Crystal Desert",   ground: "#e7f5ff" },
+  tundra:     { name: "Frozen Plateau",   ground: "#e9f2f6" },
+  mountain:   { name: "Mountain Range",   ground: "#6b6b6b" },
+  desert:     { name: "Desert",           ground: "#e3d6a3" },
+  snow:       { name: "Snowfields",       ground: "#f3f7fb" },
 };
 
 // --- Active biome state ---
@@ -35,6 +40,23 @@ export function cycleBiome(dir = +1) {
 // Ground color for current biome (fallback = neutral gray)
 export function getGroundColor() {
   return BIOMES[_active]?.ground || "#4b4b4b";
+}
+
+// Rock color per biome (chosen for contrast vs ground)
+export function getRockColor(id = _active) {
+  switch (id) {
+    case "ice":        return "#1f3b45";
+    case "saltflats":  return "#5c5c5c";
+    case "volcanic":   return "#a0452a";
+    case "lava":       return "#b34a2e";
+    case "swamp":      return "#7a8a7a";
+    case "crystal":    return "#355a66";
+    case "tundra":     return "#3f4f5a";
+    case "mountain":   return "#202020";
+    case "desert":     return "#6e5a2e";
+    case "snow":       return "#3a4a58";
+    default:           return "#555555";
+  }
 }
 
 // --- Randomize biome for a run / reset ---
