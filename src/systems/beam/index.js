@@ -48,7 +48,8 @@ const state = { modeIndex: 1, angle: 0, family: "discrete", levelIndex: 0 };
 // --- Smooth display index (float) that eases toward levelIndex ---
 let _smoothIdx = 0;                 // float 0..16
 let _lastSmoothMs = performance.now();
-const SMOOTH_HZ = 12;               // higher = faster easing (try 10–16)
+const SMOOTH_HZ = 16;               // faster easing → smoother cone→laser handoff
+          // higher = faster easing (try 10–16)
 
 function _advanceSmooth() {
   const now = performance.now();
@@ -221,7 +222,7 @@ export function raycast(origin, dir, params = {}) {
   BeamStats.clearedTiles = 0;
 
 
-   // continuous family → use shared sampler (0..16 levels) in world space
+  // continuous family → use shared sampler (0..16 levels) in WORLD space
   if (state.family === "continuous") {
     const circles = sampleContinuousEnvelope(origin, dir);
     for (const c of circles) {
@@ -230,6 +231,7 @@ export function raycast(origin, dir, params = {}) {
     }
     return { hits: [], clearedFog };
   }
+
 
 
 
