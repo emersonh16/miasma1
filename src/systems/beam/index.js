@@ -34,13 +34,24 @@ const CONE_HALF_MAX  = CONE_TOTAL_MAX * 0.5;
 
 
 const BeamParams = {
-  bubbleRadius: 64,        // px → 128px diameter
-  laserLength: 384,        // px
-  laserThickness: 8,       // px (visual + hitbox)
-  coneLength: 224,         // px
-  coneHalfAngleDeg: 32,    // deg (half-angle; default = 64° total)
-  budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
+  // Bubble band
+  bubbleRadius: 72,        // MAX bubble
+  minBubbleRadius: 28,     // ↑ from ~16–20 → slightly larger “MIN bubble”
+
+  // Cone band
+  coneLength: 256,         // reach
+  coneHalfAngleDeg: 26,    // tighter angle
+  coneBaseRadius: 80,      // new: circle base just larger than max bubble
+
+  // Laser band
+  laserLength: 320,        // longer than cone
+  laserThickness: 10,      
+
+  // Perf
+  budgetPerStamp: 160,
 };
+
+
 
 // 5 continuous states: 0=OFF, 1=MIN BUBBLE, 2=MAX BUBBLE, 3=CONE, 4=LASER
 const state = { modeIndex: 1, angle: 0, family: "continuous", levelIndex: 0 };
@@ -143,12 +154,14 @@ function sampleContinuousEnvelope(origin, dir) {
   // 0 = OFF
   if (idxF <= 0.001) return circles;
 
-  // 1 = MIN BUBBLE (fixed tight radius)
+    // 1 = MIN BUBBLE (fixed tight radius, snapped to tile scale)
   if (idxF <= 1.0) {
-    const rMin = 16; // small, readable hotspot
+    const rMin = BeamParams.minBubbleRadius;
     circles.push({ x: origin.x, y: origin.y, r: rMin });
     return circles;
   }
+
+
 
   // 1→2 : interpolate MIN→MAX BUBBLE
   if (idxF <= 2.0) {
@@ -163,7 +176,10 @@ function sampleContinuousEnvelope(origin, dir) {
   if (idxF <= 3.0) {
     const t = idxF - 2.0; // 0..1
     const rBubble = BeamParams.bubbleRadius * (1.0 - t);
+    const baseR   = BeamParams.coneBaseRadius;
     if (rBubble > 2) circles.push({ x: origin.x, y: origin.y, r: rBubble });
+    else circles.push({ x: origin.x, y: origin.y, r: baseR }); // ensure cone base circle stays > max bubble
+
 
     const halfAdeg = 32; // wide-cone target
     const halfA = (halfAdeg * Math.PI) / 180;
