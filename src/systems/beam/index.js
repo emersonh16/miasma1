@@ -11,11 +11,32 @@ const state = { modeIndex: 1, angle: 0, level: 1 }; // start near bubbleMin
 
 export function getMode() { return MODES[state.modeIndex]; }
 export function setMode(m) {
+  const old = MODES[state.modeIndex];
   const i = MODES.indexOf((m || "").toLowerCase());
   if (i !== -1) state.modeIndex = i;
+  const cur = MODES[state.modeIndex];
+  if (cur !== old) { _blend.prevMode = old; _blend.t = 0; }  // begin crossfade
 }
-export function modeUp(steps = 1)   { state.modeIndex = Math.min(MODES.length - 1, state.modeIndex + steps); }
-export function modeDown(steps = 1) { state.modeIndex = Math.max(0, state.modeIndex - steps); }
+
+export function modeUp(steps = 1) {
+  const old = MODES[state.modeIndex];
+  const nextIndex = Math.min(MODES.length - 1, state.modeIndex + steps);
+  if (nextIndex !== state.modeIndex) {
+    state.modeIndex = nextIndex;
+    _blend.prevMode = old;
+    _blend.t = 0; // start fade
+  }
+}
+export function modeDown(steps = 1) {
+  const old = MODES[state.modeIndex];
+  const nextIndex = Math.max(0, state.modeIndex - steps);
+  if (nextIndex !== state.modeIndex) {
+    state.modeIndex = nextIndex;
+    _blend.prevMode = old;
+    _blend.t = 0; // start fade
+  }
+}
+
 export function setAngle(rad) { state.angle = rad || 0; }
 export function getAngle()   { return state.angle; }
 
@@ -41,8 +62,43 @@ const MAX = {
 const ANGLE_TOTAL_DEG = 64;
 const BUDGET_PER_STAMP = 160;
 
+
+// --- Mode crossfade (prev → current) ---
+let _blend = {
+  prevMode: MODES[state.modeIndex],
+  t: 1,              // 0..1 (1 = fully on current)
+  durMs: 150         // crossfade duration
+};
+const _modeWeights = { off:0, bubbleMin:0, bubbleMax:0, cone:0, laser:0 };
+
+/** Get per-mode weights that crossfade prev→current over _blend.durMs */
+function getModeBlend() {
+  const now = performance.now();
+  if (typeof getModeBlend._last !== "number") getModeBlend._last = now;
+  const dt = now - getModeBlend._last;
+  getModeBlend._last = now;
+
+  if (_blend.t < 1) _blend.t = Math.min(1, _blend.t + (dt / _blend.durMs));
+
+  // reset
+  _modeWeights.off = _modeWeights.bubbleMin = _modeWeights.bubbleMax =
+  _modeWeights.cone = _modeWeights.laser = 0;
+
+  const cur = MODES[state.modeIndex];
+  const prev = _blend.prevMode;
+  const wCur = _blend.t;
+  const wPrev = 1 - _blend.t;
+
+  if (prev && prev !== cur) _modeWeights[prev] = wPrev;
+  _modeWeights[cur] = wCur;
+
+  return _modeWeights;
+}
+
+
+
 // --- Visual/clear smoothing (keeps hitboxes conceptually same; just eases to target) ---
-const VIS_SMOOTH_HZ = 12; // larger = snappier; smaller = silkier
+const VIS_SMOOTH_HZ = 4; // larger = snappier; smaller = silkier
 let _vis = {
   bubbleMinRadius: BASE.bubbleMin,
   bubbleMaxRadius: BASE.bubbleMax,
@@ -122,8 +178,10 @@ function clearCone(origin, dir, length, halfAngle, budget) {
 
 // ---- hit test & clearing (hitbox matches visuals) ----
 export function raycast(origin, dir) {
-  const mode = MODES[state.modeIndex];
+  // Use smoothed params (sizes glide) and crossfade weights (modes fade)
   const BP = getSmoothParams();
+  const W  = getModeBlend();
+
   const MAX_PER_STEP = BUDGET_PER_STAMP;
   const T = miasma.getTileSize();
   const TILE_PAD = T * 0.15;
@@ -131,12 +189,16 @@ export function raycast(origin, dir) {
   BeamStats.stamps = 0;
   BeamStats.clearedTiles = 0;
 
-  if (mode === "off") return { hits: [], clearedFog };
+  // If fully off (no current & no previous), nothing to do
+  if ((W.off + W.bubbleMin + W.bubbleMax + W.cone + W.laser) <= 0) {
+    return { hits: [], clearedFog };
+  }
 
-  if (mode === "laser") {
+  // --- LASER (weighted) ---
+  if (W.laser > 0) {
     const len = BP.laserLength;
-    const ux = Math.cos(dir),  uy = Math.sin(dir); // forward
-    const nx = -Math.sin(dir), ny = Math.cos(dir); // normal
+    const ux = Math.cos(dir),  uy = Math.sin(dir);
+    const nx = -Math.sin(dir), ny = Math.cos(dir);
 
     const rCore = Math.max(2, BP.laserThickness * 0.5 + TILE_PAD);
     const strideCore = Math.max(T * 0.4, rCore * 0.75);
@@ -160,18 +222,21 @@ export function raycast(origin, dir) {
     const broomStep = Math.max(T * 0.8, 3);
     const rBroom    = Math.max(2, T * 0.6);
 
+    const budgetCore  = Math.max(MAX_PER_STEP, 800) * W.laser;
+    const budgetHalo  = MAX_PER_STEP * W.laser;
+
     // Core
     for (let d = strideCore; d <= len; d += strideCore) {
       const wx = origin.x + ux * d;
       const wy = origin.y + uy * d;
-      const n = miasma.clearArea(wx, wy, rCore, Math.max(MAX_PER_STEP, 800));
+      const n = miasma.clearArea(wx, wy, rCore, budgetCore);
       clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
     // Tip punch
     {
       const wx = origin.x + ux * len;
       const wy = origin.y + uy * len;
-      const n = miasma.clearArea(wx, wy, rCore, Math.max(MAX_PER_STEP, 800));
+      const n = miasma.clearArea(wx, wy, rCore, budgetCore);
       clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
 
@@ -186,7 +251,7 @@ export function raycast(origin, dir) {
         [cx + nx * (-offHalo2), cy + ny * (-offHalo2)],
       ];
       for (const [px, py] of pts) {
-        const n = miasma.clearArea(px, py, rHalo, MAX_PER_STEP);
+        const n = miasma.clearArea(px, py, rHalo, budgetHalo);
         clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
       }
     }
@@ -200,31 +265,31 @@ export function raycast(origin, dir) {
         [cx + nx * sweepOffB, cy + ny * sweepOffB],
       ];
       for (const [px, py] of pts) {
-        const n = miasma.clearArea(px, py, rSweep, MAX_PER_STEP);
+        const n = miasma.clearArea(px, py, rSweep, budgetHalo);
         clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
       }
     }
 
-    // Broom pass (fills gaps)
+    // Broom
+    const budgetBroom = MAX_PER_STEP * W.laser;
     for (let d = broomGap; d <= len; d += broomGap) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
       for (let off = -broomSpan; off <= broomSpan; off += broomStep) {
         const wx = cx + nx * off;
         const wy = cy + ny * off;
-        const n = miasma.clearArea(wx, wy, rBroom, MAX_PER_STEP);
+        const n = miasma.clearArea(wx, wy, rBroom, budgetBroom);
         clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
       }
     }
 
-    // --- DAMAGE pass (laser only) ---
-    const LASER_DPS = (config?.beam?.laser?.dps ?? 15);
+    // DAMAGE pass scaled by weight
+    const LASER_DPS = (config?.beam?.laser?.dps ?? 15) * W.laser;
     const now = performance.now();
     if (typeof raycast._lastTime !== "number") raycast._lastTime = now;
     const dt = Math.min(0.05, Math.max(0, (now - raycast._lastTime) / 1000));
     raycast._lastTime = now;
 
-    // Beam AABB
     const x0 = origin.x, y0 = origin.y;
     const x1 = origin.x + ux * len, y1 = origin.y + uy * len;
     const pad = offHalo2 + T * 1.5;
@@ -243,21 +308,23 @@ export function raycast(origin, dir) {
         if (e.health < 0) e.health = 0;
       }
     }
-
-    return { hits: [], clearedFog };
   }
 
-  if (mode === "cone") {
+  // --- CONE (weighted) ---
+  if (W.cone > 0) {
     const len   = BP.coneLength;
     const halfA = (BP.coneAngleTotalDeg * 0.5 * Math.PI) / 180;
     const ux = Math.cos(dir), uy = Math.sin(dir);
 
     const step = Math.max(T * 0.9, 6);
+    const budgetNear = MAX_PER_STEP * W.cone;
+    const budgetTip  = Math.max(MAX_PER_STEP, 2000) * W.cone;
+
     for (let d = step; d <= len; d += step) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
       const r  = Math.max(3, Math.tan(halfA) * d) + TILE_PAD;
-      const budget = d > len * 0.6 ? Math.max(MAX_PER_STEP, 1200) : MAX_PER_STEP;
+      const budget = d > len * 0.6 ? Math.max(MAX_PER_STEP, 1200) * W.cone : budgetNear;
       const n = miasma.clearArea(cx, cy, r, budget);
       clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
@@ -266,23 +333,27 @@ export function raycast(origin, dir) {
     const tipY = origin.y + uy * len;
     const rTip = Math.max(4, Math.tan(halfA) * len) + TILE_PAD;
     {
-      const n = miasma.clearArea(tipX, tipY, rTip, Math.max(MAX_PER_STEP, 2000));
+      const n = miasma.clearArea(tipX, tipY, rTip, budgetTip);
       clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
-    return { hits: [], clearedFog };
   }
 
-  if (mode === "bubbleMin" || mode === "bubbleMax") {
-    const r0 = mode === "bubbleMin" ? BP.bubbleMinRadius : BP.bubbleMaxRadius;
-    const r = r0 + TILE_PAD;
+  // --- BUBBLES (weighted) ---
+  if (W.bubbleMin > 0 || W.bubbleMax > 0) {
     const Tz = miasma.getTileSize();
     const cx = Math.floor(origin.x / Tz) * Tz + Tz * 0.5;
     const cy = Math.floor(origin.y / Tz) * Tz + Tz * 0.5;
-    {
-      const n = miasma.clearArea(cx, cy, r, Math.max(900, MAX_PER_STEP));
+
+    if (W.bubbleMin > 0) {
+      const rMin = BP.bubbleMinRadius + TILE_PAD;
+      const n = miasma.clearArea(cx, cy, rMin, Math.max(900, MAX_PER_STEP) * W.bubbleMin);
       clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
     }
-    return { hits: [], clearedFog };
+    if (W.bubbleMax > 0) {
+      const rMax = BP.bubbleMaxRadius + TILE_PAD;
+      const n = miasma.clearArea(cx, cy, rMax, Math.max(900, MAX_PER_STEP) * W.bubbleMax);
+      clearedFog += n; BeamStats.clearedTiles += n; BeamStats.stamps++;
+    }
   }
 
   return { hits: [], clearedFog };
@@ -290,66 +361,70 @@ export function raycast(origin, dir) {
 
 // ---- visuals ----
 export function draw(ctx, cam, player) {
-  const mode = MODES[state.modeIndex];
   const BP = getSmoothParams();
+  const W  = getModeBlend();
 
   ctx.save();
   ctx.translate(-cam.x + player.x, -cam.y + player.y);
   ctx.rotate(state.angle);
 
   const prevComp = ctx.globalCompositeOperation;
-  const prevAlpha = ctx.globalAlpha;
   ctx.globalCompositeOperation = "lighter";
 
   const LIGHT_RGB = "255,240,0";
 
-  if (mode === "off") {
-    ctx.globalCompositeOperation = prevComp;
-    ctx.globalAlpha = prevAlpha;
-    ctx.restore();
-    return;
+  // bubbles (both can blend)
+  if (W.bubbleMin > 0) {
+    const r = BP.bubbleMinRadius;
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    g.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.30 * W.bubbleMin})`);
+    g.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  }
+  if (W.bubbleMax > 0) {
+    const r = BP.bubbleMaxRadius;
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    g.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.30 * W.bubbleMax})`);
+    g.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
   }
 
-  if (mode === "bubbleMin" || mode === "bubbleMax") {
-    const r = (mode === "bubbleMin") ? BP.bubbleMinRadius : BP.bubbleMaxRadius;
-    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-    g.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`);
-    g.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (mode === "laser") {
+  // laser
+  if (W.laser > 0) {
     const len = BP.laserLength;
     const thick = BP.laserThickness;
     ctx.lineCap = "round";
 
-    ctx.strokeStyle = `rgba(${LIGHT_RGB},0.25)`;
+    ctx.strokeStyle = `rgba(${LIGHT_RGB},${0.25 * W.laser})`;
     ctx.lineWidth = thick * 2.25;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
 
-    ctx.strokeStyle = `rgba(${LIGHT_RGB},0.6)`;
+    ctx.strokeStyle = `rgba(${LIGHT_RGB},${0.6 * W.laser})`;
     ctx.lineWidth = thick * 1.25;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
 
-    ctx.strokeStyle = `rgba(${LIGHT_RGB},1.0)`;
+    ctx.strokeStyle = `rgba(${LIGHT_RGB},${1.0 * W.laser})`;
     ctx.lineWidth = thick;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
 
     const tipR = Math.max(thick * 1.6, 6);
     const tip = ctx.createRadialGradient(len, 0, 0, len, 0, tipR * 2);
-    tip.addColorStop(0, `rgba(${LIGHT_RGB},0.9)`);
-    tip.addColorStop(1, `rgba(${LIGHT_RGB},0.0)`);
+    tip.addColorStop(0, `rgba(${LIGHT_RGB},${0.9 * W.laser})`);
+    tip.addColorStop(1, `rgba(${LIGHT_RGB},0)`);
     ctx.fillStyle = tip;
     ctx.beginPath(); ctx.arc(len, 0, tipR * 2, 0, Math.PI * 2); ctx.fill();
-  } else if (mode === "cone") {
+  }
+
+  // cone
+  if (W.cone > 0) {
     const length = BP.coneLength;
     const halfAngle = (BP.coneAngleTotalDeg * 0.5 * Math.PI) / 180;
 
-
     const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, length);
-    bodyGrad.addColorStop(0.0, `rgba(${LIGHT_RGB},0.20)`);
-    bodyGrad.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
+    bodyGrad.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.20 * W.cone})`);
+    bodyGrad.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
     ctx.fillStyle = bodyGrad;
 
     ctx.beginPath();
@@ -360,8 +435,8 @@ export function draw(ctx, cam, player) {
 
     const rTip = Math.max(8, Math.tan(halfAngle) * length);
     const tip = ctx.createRadialGradient(length, 0, 0, length, 0, rTip);
-    tip.addColorStop(0.0, `rgba(${LIGHT_RGB},0.30)`);
-    tip.addColorStop(1.0, `rgba(${LIGHT_RGB},0.00)`);
+    tip.addColorStop(0.0, `rgba(${LIGHT_RGB},${0.30 * W.cone})`);
+    tip.addColorStop(1.0, `rgba(${LIGHT_RGB},0)`);
     ctx.fillStyle = tip;
     ctx.beginPath();
     ctx.arc(length, 0, rTip, 0, Math.PI * 2);
@@ -369,6 +444,5 @@ export function draw(ctx, cam, player) {
   }
 
   ctx.globalCompositeOperation = prevComp;
-  ctx.globalAlpha = prevAlpha;
   ctx.restore();
 }
