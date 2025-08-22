@@ -1,7 +1,12 @@
 // src/render/draw.js
 import { config } from "../core/config.js";
 import { getGroundColor, getBiomeId } from "../world/biomes/index.js";
-import { drawIceBiome } from "../world/biomes/ice.js";
+import { drawIceBiome }     from "../world/biomes/ice.js";
+import { drawLavaBiome }    from "../world/biomes/lava.js";
+import { drawSwampBiome }   from "../world/biomes/swamp.js";
+import { drawMountainBiome }from "../world/biomes/mountain.js";
+import { drawDesertBiome }  from "../world/biomes/desert.js";
+import { drawSnowBiome }    from "../world/biomes/snow.js";
 import { getTile, TILE_SIZE as WORLD_T } from "../world/store.js";
 
 
@@ -65,19 +70,23 @@ function ensureEarthPattern(ctx) {
 export function clear(ctx, w, h, cam) {
   ctx.clearRect(0, 0, w, h);
 
-  // Route by active biome. "ice" uses the preserved pattern; others = flat color fill.
   const id = getBiomeId();
-  if (id === "ice") {
-    drawIceBiome(ctx, cam, w, h);
-    return;
+  switch (id) {
+    case "ice":      return drawIceBiome(ctx, cam, w, h);
+    case "lava":     return drawLavaBiome(ctx, cam, w, h);
+    case "swamp":    return drawSwampBiome(ctx, cam, w, h);
+    case "mountain": return drawMountainBiome(ctx, cam, w, h);
+    case "desert":   return drawDesertBiome(ctx, cam, w, h);
+    case "snow":     return drawSnowBiome(ctx, cam, w, h);
+    default:
+      // Flat color fallback for simple/unknown biomes
+      ctx.save();
+      ctx.fillStyle = getGroundColor();
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
   }
-
-  // Flat color fill for simple MVP biomes
-  ctx.save();
-  ctx.fillStyle = getGroundColor();
-  ctx.fillRect(0, 0, w, h);
-  ctx.restore();
 }
+
 
 
 /**

@@ -3,12 +3,11 @@
 
 // --- Registry: add/remove biomes here ---
 export const BIOMES = {
-  ice:        { name: "Ice Plateau",      ground: "#86dff0" },
-  saltflats:  { name: "Salt Flats",       ground: "#f8f8f8" }, // near‑white, sun‑bleached
-  volcanic:   { name: "Volcanic",         ground: "#2b0d0d" }, // deep, ashy maroon
-  fungal:     { name: "Fungal Marsh",     ground: "#223322" }, // dark green‑gray
-  crystal:    { name: "Crystal Desert",   ground: "#e7f5ff" }, // pale icy cyan
-  tundra:     { name: "Frozen Plateau",   ground: "#e9f2f6" }, // soft blue‑white
+  lava:      { name: "Lava Wastes",     ground: "#2b0d0d" },
+  swamp:     { name: "Swamp",           ground: "#223322" },
+  mountain:  { name: "Mountain Range",  ground: "#6b6b6b" },
+  desert:    { name: "Desert",          ground: "#e3d6a3" },
+  snow:      { name: "Snowfields",      ground: "#f3f7fb" },
 };
 
 // --- Active biome state ---
