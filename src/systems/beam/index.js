@@ -135,16 +135,16 @@ function sampleContinuousEnvelope(origin, dir, L) {
   }
 
   if (L <= 0.7) {
-    // Start at TOTAL 64° (half 32°) and narrow to TOTAL 4° (half 2°) as L→0.7
+    // Cone band: angle narrows 64°→4°, length eases from CONE_L0→CONE_L1
     const t = (L - 0.3) / 0.4; // 0..1 within cone band
-    const halfStart = 32;      // degrees (half of 64°)
-    const halfEnd   = 2;       // degrees (half of 4°)
+    const halfStart = 32, halfEnd = 2;
     const halfAdeg  = Math.max(halfEnd, halfStart + (halfEnd - halfStart) * t);
     const halfA     = (halfAdeg * Math.PI) / 180;
 
-    // Ensure cone length immediately exceeds bubble and grows with t
-    const baseLen = Math.max(BeamParams.bubbleRadius * 1.25, 128);
-    const len     = baseLen + (BeamParams.coneLength - baseLen) * t;
+    // lengths
+    const CONE_L0 = Math.max(BeamParams.bubbleRadius * 1.25, 128);
+    const CONE_L1 = BeamParams.coneLength;
+    const len     = CONE_L0 + (CONE_L1 - CONE_L0) * t;
 
     const step = Math.max(T * 1.0, 6);
     for (let d = step; d <= len; d += step) {
@@ -158,27 +158,29 @@ function sampleContinuousEnvelope(origin, dir, L) {
     return circles;
   }
 
-
-  // Laser phase — ensure MIN laser length > MAX cone length (clean step up)
+  // Laser band (BINARY): fixed, long beam — no length growth.
+  // Must be substantially longer than max cone; includes a visible jump from cone → laser.
   {
-    const t = (L - 0.7) / 0.3;
     const Tz = miasma.getTileSize();
-    const LASER_MIN_MARGIN = Math.max(8, Tz * 2); // a small, visible bump past cone
-    const laserMin = Math.max(BeamParams.coneLength + LASER_MIN_MARGIN, 128);
-    const len = laserMin + (BeamParams.laserLength - laserMin) * t;
+    const CONE_MAX = BeamParams.coneLength;
+    const MIN_JUMP_PX = Math.max(48, Tz * 8); // clear, substantial step beyond cone tip
+    const FIXED_LEN = Math.max(BeamParams.laserLength, CONE_MAX + MIN_JUMP_PX);
 
-    const thick = 4 + (BeamParams.laserThickness - 4) * t;
+    // Fixed thickness too (binary feel): no thickness morph here
+    const thick = BeamParams.laserThickness;
     const rCore = Math.max(2, thick * 0.5 + TILE_PAD);
     const stride = Math.max(T * 1.0, rCore * 0.9);
 
-    for (let d = stride; d <= len; d += stride) {
+    for (let d = stride; d <= FIXED_LEN; d += stride) {
       const wx = origin.x + ux * d;
       const wy = origin.y + uy * d;
       circles.push({ x: wx, y: wy, r: rCore });
     }
-    circles.push({ x: origin.x + ux * len, y: origin.y + uy * len, r: rCore });
+    circles.push({ x: origin.x + ux * FIXED_LEN, y: origin.y + uy * FIXED_LEN, r: rCore });
     return circles;
   }
+
+
 
 }
 
