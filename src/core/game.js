@@ -165,8 +165,8 @@ addEventListener("wheel", (e) => {
     const dt = nowMs - (wheelCtrl.lastWheelMs || 0);
     const bonus = (dt > 0 && dt < 120) ? 1 : 0; // feels arcade-y, still controllable
 
-    const steps = Math.max(1, Math.min(4, base + bonus));
-    const next = Math.max(0, Math.min(16, idx + (sign > 0 ? +steps : -steps)));
+    const steps = 1; // always move 1 level per notch
+    const next = Math.max(0, Math.min(4, idx + (sign > 0 ? +steps : -steps)));
 
     if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(next);
     wheelCtrl.lastWheelMs = nowMs;

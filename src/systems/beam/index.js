@@ -42,14 +42,14 @@ const BeamParams = {
   budgetPerStamp: 160,     // tiles/update cap for miasma.clearArea
 };
 
-const LEVELS = 16; // 0..16 where 0=OFF, 16=LASER
-const state = { modeIndex: 1, angle: 0, family: "discrete", levelIndex: 0 };
+const LEVELS = 4; // 0=OFF, 1=small bubble, 2=max bubble, 3=min cone, 4=laser
+const state = { modeIndex: 1, angle: 0, family: "continuous", levelIndex: 0 };
 
 // --- Smooth display index (float) that eases toward levelIndex ---
-let _smoothIdx = 0;                 // float 0..16
+let _smoothIdx = 0;                 // float 0..4
 let _lastSmoothMs = performance.now();
-const SMOOTH_HZ = 16;               // faster easing → smoother cone→laser handoff
-          // higher = faster easing (try 10–16)
+const SMOOTH_HZ = 16;
+
 
 function _advanceSmooth() {
   const now = performance.now();
@@ -155,55 +155,84 @@ function sampleContinuousEnvelope(origin, dir) {
   // OFF
   if (idxF <= 0.001) return circles;
 
-  // Bubble: 1..5 (allow fractional blend across)
-  if (idxF < 5.999) {
-    const r0 = 12, r1 = BeamParams.bubbleRadius;
-    const t = Math.max(0, Math.min(1, (idxF - 1) / (5 - 1))); // 0..1
-    const r = r0 + (r1 - r0) * t;
-    circles.push({ x: origin.x, y: origin.y, r: r + TILE_PAD });
+    // idxF ranges 0..4
+  // 0 = off
+  if (idxF <= 0.001) return circles;
+
+  // 1 = small bubble
+  if (idxF <= 1.0) {
+    const r = 16; // tight radius
+    circles.push({ x: origin.x, y: origin.y, r });
     return circles;
   }
 
-  // Cone: 6..15 (fractional blend across)
-  if (idxF < 15.999) {
-    const t = Math.max(0, Math.min(1, (idxF - 6) / (15 - 6))); // 0..1
-    const halfStart = 32, halfEnd = 2;
-    const halfAdeg  = halfStart + (halfEnd - halfStart) * t;
-    const halfA     = (halfAdeg * Math.PI) / 180;
+  // Blend 1→2 = small→max bubble
+  if (idxF <= 2.0) {
+    const t = idxF - 1.0; // 0..1
+    const r0 = 16, r1 = BeamParams.bubbleRadius;
+    const r = r0 + (r1 - r0) * t;
+    circles.push({ x: origin.x, y: origin.y, r });
+    return circles;
+  }
 
-    const CONE_L0 = Math.max(BeamParams.bubbleRadius * 1.25, 128);
-    const len     = CONE_L0 + (BeamParams.coneLength - CONE_L0) * t;
-
-    const step = Math.max(T * 1.0, 6);
+  // Blend 2→3 = bubble→wide cone
+  if (idxF <= 3.0) {
+    const t = idxF - 2.0; // 0..1
+    const halfAdeg = 32;  // wide cone
+    const halfA = (halfAdeg * Math.PI) / 180;
+    const len   = BeamParams.coneLength;
+    const step  = Math.max(T * 1.0, 6);
     for (let d = step; d <= len; d += step) {
       const cx = origin.x + ux * d;
       const cy = origin.y + uy * d;
-      const rr = Math.max(4, Math.tan(halfA) * d) + TILE_PAD;
+      // blend bubble radius into cone radius at start
+      const rrBubble = BeamParams.bubbleRadius;
+      const rrCone   = Math.max(4, Math.tan(halfA) * d);
+      const rr       = rrBubble + (rrCone - rrBubble) * t;
       circles.push({ x: cx, y: cy, r: rr });
     }
-    const tipR = Math.max(4, Math.tan(halfA) * len) + TILE_PAD;
-    circles.push({ x: origin.x + ux * len, y: origin.y + uy * len, r: tipR });
     return circles;
   }
 
-  // Laser (binary): fixed, slightly longer than cone max
+  // Blend 3→4 = wide cone→laser
   {
-    const CONE_MAX = BeamParams.coneLength;
-    const MIN_JUMP_PX = Math.max(12, T * 2); // “visibly longer but not much”
-    const FIXED_LEN   = CONE_MAX + MIN_JUMP_PX;
+    const t = idxF - 3.0; // 0..1
+    const halfStart = 32, halfEnd = 0.5;
+    const halfAdeg  = halfStart + (halfEnd - halfStart) * t;
+    const halfA     = (halfAdeg * Math.PI) / 180;
 
-    const thick = BeamParams.laserThickness;
-    const rCore = Math.max(2, thick * 0.5 + TILE_PAD);
-    const stride = Math.max(T * 1.0, rCore * 0.9);
-
-    for (let d = stride; d <= FIXED_LEN; d += stride) {
-      const wx = origin.x + ux * d;
-      const wy = origin.y + uy * d;
-      circles.push({ x: wx, y: wy, r: rCore });
+    const len   = BeamParams.coneLength;
+    const step  = Math.max(T * 1.0, 6);
+    for (let d = step; d <= len; d += step) {
+      const cx = origin.x + ux * d;
+      const cy = origin.y + uy * d;
+      const rr = Math.max(2, Math.tan(halfA) * d);
+      circles.push({ x: cx, y: cy, r: rr });
     }
-    circles.push({ x: origin.x + ux * FIXED_LEN, y: origin.y + uy * FIXED_LEN, r: rCore });
     return circles;
   }
+
+
+  // Cone smoothly narrows all the way to razor-thin at max level (acts like laser)
+  {
+    const t = Math.max(0, Math.min(1, (idxF - 6) / (16 - 6))); // 6..16
+    const halfStart = 32, halfEnd = 0.5; // deg → collapse to near zero
+    const halfAdeg  = halfStart + (halfEnd - halfStart) * t;
+    const halfA     = (halfAdeg * Math.PI) / 180;
+
+    const len   = BeamParams.coneLength;
+    const step  = Math.max(T * 1.0, 6);
+    for (let d = step; d <= len; d += step) {
+      const cx = origin.x + ux * d;
+      const cy = origin.y + uy * d;
+      const rr = Math.max(2, Math.tan(halfA) * d);
+      circles.push({ x: cx, y: cy, r: rr });
+    }
+    return circles;
+  }
+
+
+
 }
 
 
@@ -435,14 +464,16 @@ export function draw(ctx, cam, player) {
     const localCircles = sampleContinuousEnvelope({ x: 0, y: 0 }, 0);
 
 
-    const SOLID = `rgba(${LIGHT_RGB},1.0)`; // opaque for testing
-    ctx.fillStyle = SOLID;
-
     for (const c of localCircles) {
+      const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, c.r);
+      g.addColorStop(0.0, `rgba(${LIGHT_RGB},0.35)`);
+      g.addColorStop(1.0, `rgba(${LIGHT_RGB},0.0)`);
+      ctx.fillStyle = g;
       ctx.beginPath();
       ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
       ctx.fill();
     }
+
 
     ctx.globalCompositeOperation = prevComp;
     ctx.globalAlpha = prevAlpha;
