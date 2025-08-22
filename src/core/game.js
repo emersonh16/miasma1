@@ -85,26 +85,41 @@ addEventListener("mousemove", (e) => {
 const WHEEL_STEP = 100;          // typical notch ~= 100
 const CONT_STEPS = 256;          // fine granularity for level (0..1)
 
-const TORQUE_IMPULSE   = 1.25;   // torque per notch (normalized)
-const TORQUE_DECAY_HZ  = 7.0;    // torque fades fast (flicks)
-const INERTIA          = 140;    // heavier = slower spin-up
-const VEL_DAMPING_HZ   = 2.4;    // coast-down friction
-const VEL_MAX          = 520;    // clamp |velocity| in steps/sec
-const REVERSE_BRAKE    = 0.22;   // kill some velocity on direction flip
+// --- ULTRA‑SNAPPY + FLICK‑RELATIVE DRAG ---
+const TORQUE_IMPULSE   = 3.2;    // strong push per notch
+const TORQUE_DECAY_HZ  = 4.0;    // keeps ramping a beat
+const INERTIA          = 40;     // fast spin‑up
+const VEL_DAMPING_HZ   = 1.0;    // baseline friction (always on)
+const VEL_MAX          = 1600;   // top sweep speed
+const REVERSE_BRAKE    = 0.35;   // crisp direction flips
+
+// Immediate drag tied to flick speed
+const DRAG_BASE_HZ     = 0.0;    // added to baseline even for slow scrolls
+const DRAG_K_HZ        = 3.0;    // scales with flick speed (bigger flick ⇒ more instant drag)
+const DRAG_DECAY_HZ    = 6.0;    // how quickly that extra drag fades
+
+// Minimal “kick” so first flick visibly moves
+const KICK_VEL_STEPS   = 140;    // steps/sec floor when torque exists
+
+
+
 
 const wheelCtrl = {
   lastT: performance.now(),
-  dir: 0,          // -1 up, +1 down
-  torque: 0,       // accumulated push
-  vel: 0,          // steps/sec
-  accSteps: 0,     // fractional steps
-  discAcc: 0       // for discrete mode
+  dir: 0,           // -1 up, +1 down
+  torque: 0,        // accumulated push
+  vel: 0,           // steps/sec
+  accSteps: 0,      // fractional steps
+  discAcc: 0,       // for discrete mode
+  dragHz: 0         // instantaneous extra damping from last flick (decays)
 };
 
-function ease01(x) {              // cheap sigmoid-ish 0..1
-  const xx = x * x;
-  return xx / (1 + xx);
+
+function ease01(x) {              // snappier S-curve 0..1
+  const xxx = x * x * x;          // x^3 /(1+x^3) → slower start, faster rise
+  return xxx / (1 + xxx);
 }
+
 
 addEventListener("wheel", (e) => {
   const family = (typeof beam.getFamily === "function") ? beam.getFamily() : "discrete";
@@ -125,8 +140,15 @@ addEventListener("wheel", (e) => {
     wheelCtrl.dir = sign;
 
     // add torque proportional to notch magnitude
-    const notch = Math.min(1.75, Math.abs(e.deltaY) / WHEEL_STEP);
+    const notch = Math.min(2.5, Math.abs(e.deltaY) / WHEEL_STEP);
     wheelCtrl.torque += sign * (TORQUE_IMPULSE * notch);
+
+    // compute instantaneous flick speed (normalized by event dt)
+    const flickSpeed = dt > 0 ? (Math.abs(e.deltaY) / WHEEL_STEP) / dt : 0; // “per‑second notches”
+    // set immediate drag proportional to flick speed (snaps on, then fades)
+    const targetDrag = DRAG_BASE_HZ + DRAG_K_HZ * Math.min(4, flickSpeed);
+    if (targetDrag > wheelCtrl.dragHz) wheelCtrl.dragHz = targetDrag;
+
 
     e.preventDefault();  // avoid page scroll
     return;
@@ -249,7 +271,23 @@ function frame(now) {
     const gain  = ease01(Math.abs(wheelCtrl.torque));        // 0..1
     const accel = Math.sign(wheelCtrl.torque) * (gain / INERTIA) * 1000; // scaled
     wheelCtrl.vel += accel * dt;
-    wheelCtrl.vel *= Math.exp(-VEL_DAMPING_HZ * dt);
+    // --- DAMPING: baseline + instantaneous flick‑drag (decays over time)
+    wheelCtrl.dragHz *= Math.exp(-DRAG_DECAY_HZ * dt);            // fade extra drag from the last flick
+    const totalDampHz = VEL_DAMPING_HZ + wheelCtrl.dragHz;        // heavier immediate drag after big flicks
+    wheelCtrl.vel *= Math.exp(-totalDampHz * dt);
+
+    // --- BRAKE (coast): only when user isn’t pushing
+    if (Math.abs(wheelCtrl.torque) < 0.001) {
+      const brake = 0.90;  // gentler coast; raise toward 0.95 to coast longer, lower to stop faster
+      wheelCtrl.vel *= (1 - (1 - brake) * dt * 60);
+    }
+
+    // Kick so first flick is immediately visible
+    if (Math.abs(wheelCtrl.torque) > 0.001 && Math.abs(wheelCtrl.vel) < KICK_VEL_STEPS) {
+      wheelCtrl.vel = Math.sign(wheelCtrl.torque) * KICK_VEL_STEPS;
+    }
+
+
 
     // clamp velocity
     if (wheelCtrl.vel >  VEL_MAX) wheelCtrl.vel =  VEL_MAX;
