@@ -33,8 +33,25 @@ Object.assign(canvas.style,   { position: "absolute", left: "0", top: "0", width
 Object.assign(fogCanvas.style,{ position: "absolute", left: "0", top: "0", width: "100%", height: "100%", display: "block", zIndex: "1", pointerEvents: "none" });
 parent.appendChild(fogCanvas);
 
+// --- Miasma toggle persistence ---
+const MIASMA_KEY = "dd.miasma";
+function loadMiasmaFlag() {
+  try {
+    const v = localStorage.getItem(MIASMA_KEY);
+    if (v == null) return; // keep default
+    config.flags.miasma = (v === "1");
+  } catch {}
+}
+function saveMiasmaFlag() {
+  try {
+    localStorage.setItem(MIASMA_KEY, config.flags.miasma ? "1" : "0");
+  } catch {}
+}
+
+
 // --- Input & actors ---
 initInput();
+loadMiasmaFlag();
 const cam = makeCamera();
 const player = makePlayer();
 
@@ -122,6 +139,11 @@ addEventListener("keydown", (e) => {
   if (k === "h") {
     config.flags.devhud = !config.flags.devhud;
   }
+  if (k === "m") {
+  config.flags.miasma = !config.flags.miasma;
+  saveMiasmaFlag();
+  return;
+}
 });
 
 
