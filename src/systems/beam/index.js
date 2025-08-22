@@ -69,17 +69,16 @@ function clampConeTotal(totalDeg) {
 
 export function setParams(patch = {}) {
   const p = { ...patch };
-  if ("coneAngleTotalDeg" in p) {
-    const total = clampConeTotal(p.coneAngleTotalDeg);
-    p.coneHalfAngleDeg = total * 0.5;
-    delete p.coneAngleTotalDeg;
-  }
-  if ("coneHalfAngleDeg" in p) {
-    p.coneHalfAngleDeg = clampConeHalf(p.coneHalfAngleDeg);
-  }
+  // lock angle: ignore any attempts to change it
+  delete p.coneAngleTotalDeg;
+  delete p.coneHalfAngleDeg;
   Object.assign(BeamParams, p);
 }
-export function getParams() { return { ...BeamParams, coneAngleTotalDeg: BeamParams.coneHalfAngleDeg * 2 }; }
+export function getParams() {
+  // expose fixed total angle for HUD/readback
+  return { ...BeamParams, coneAngleTotalDeg: 64 };
+}
+
 
 // ---- hit test & clearing (hitbox matches visuals) ----
 export function raycast(origin, dir) {
@@ -207,9 +206,9 @@ export function raycast(origin, dir) {
     return { hits: [], clearedFog };
   }
 
-  if (mode === "cone") {
+    if (mode === "cone") {
     const len   = BeamParams.coneLength;
-    const halfA = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
+    const halfA = (32 * Math.PI) / 180; // 64° total, hard-locked
     const ux = Math.cos(dir), uy = Math.sin(dir);
 
     const step = Math.max(T * 0.9, 6);
@@ -303,7 +302,8 @@ export function draw(ctx, cam, player) {
     ctx.beginPath(); ctx.arc(len, 0, tipR * 2, 0, Math.PI * 2); ctx.fill();
   } else if (mode === "cone") {
     const length = BeamParams.coneLength;
-    const halfAngle = (BeamParams.coneHalfAngleDeg * Math.PI) / 180;
+    const halfAngle = (32 * Math.PI) / 180; // 64° total, hard-locked
+
 
     const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, length);
     bodyGrad.addColorStop(0.0, `rgba(${LIGHT_RGB},0.20)`);

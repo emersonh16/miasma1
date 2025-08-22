@@ -30,13 +30,13 @@ const geom = {
   bLaserL:    { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
   bLaserT:    { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
   bConeL:     { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
-  bConeA:     { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
+
 };
 
 // interaction + UI-smoothing state
 let draggingDir = false;
 let draggingSpeed = false;
-let draggingBeam = null; // "bubbleMin" | "bubbleMax" | "laserL" | "laserT" | "coneL" | "coneA"
+let draggingBeam = null; // "bubbleMin" | "bubbleMax" | "laserL" | "laserT" | "coneL"
 let beamModule = null;
 
 let mouseDown = false;
@@ -93,8 +93,9 @@ addEventListener("mousedown", (e) => {
     ["laserL",    geom.bLaserL],
     ["laserT",    geom.bLaserT],
     ["coneL",     geom.bConeL],
-    ["coneA",     geom.bConeA],
   ];
+
+
   for (const [name, r] of tests) {
     if (pointInRect(mx, my, r)) { draggingBeam = name; updateBeamFromMouse(mx, name); return; }
   }
@@ -129,14 +130,13 @@ function updateBeamFromMouse(mx, which) {
 
   // [rect, min, max, key, formatter]
   const map = {
-    bubbleMin: [geom.bBubbleMin, 16, 256, "bubbleMinRadius", (v) => `${Math.round(v*2)} px Ø`],
-    bubbleMax: [geom.bBubbleMax, 32, 512, "bubbleMaxRadius", (v) => `${Math.round(v*2)} px Ø`],
-    laserL:    [geom.bLaserL,   128, 1024, "laserLength",    (v) => `${Math.round(v)} px`],
-    laserT:    [geom.bLaserT,     4,   48,  "laserThickness", (v) => `${v.toFixed(1)} px`],
-    coneL:     [geom.bConeL,    128,  512,  "coneLength",     (v) => `${Math.round(v)} px`],
-    // total cone angle; beam module converts to half-angle internally
-    coneA:     [geom.bConeA,      4,   64,  "coneAngleTotalDeg",(v) => `${Math.round(v)}°`],
+    bubbleMin: [geom.bBubbleMin, 18, 256,  "bubbleMinRadius", (v) => `${Math.round(v*2)} px Ø`], // 36 px Ø min
+    bubbleMax: [geom.bBubbleMax, 48, 512,  "bubbleMaxRadius", (v) => `${Math.round(v*2)} px Ø`], // 96 px Ø min
+    laserL:    [geom.bLaserL,   233, 1024, "laserLength",     (v) => `${Math.round(v)} px`],     // 233 px min
+    laserT:    [geom.bLaserT,     4,   48, "laserThickness",  (v) => `${v.toFixed(1)} px`],      // 4.0 px min
+    coneL:     [geom.bConeL,    128,  512, "coneLength",      (v) => `${Math.round(v)} px`],     // 128 px min
   };
+
 
   const row = map[which];
   if (!row) return;
@@ -240,27 +240,25 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
   geom.bBubbleMax.x = x0; geom.bBubbleMax.y = y0; y0 += gap;
   geom.bLaserL.x    = x0; geom.bLaserL.y    = y0; y0 += gap;
   geom.bLaserT.x    = x0; geom.bLaserT.y    = y0; y0 += gap;
-  geom.bConeL.x     = x0; geom.bConeL.y     = y0; y0 += gap;
-  geom.bConeA.x     = x0; geom.bConeA.y     = y0;
+  geom.bConeL.x     = x0; geom.bConeL.y     = y0;
+
 
   // section label
   ctx.fillStyle = "#ccc";
   ctx.fillText("Beam (discrete)", geom.panel.x + 8, geom.slider.y + 24);
 
   // draw sliders
-  drawSlider(ctx, geom.bBubbleMin, (BP.bubbleMinRadius - 16) / (256 - 16), "Bubble Min", `${Math.round(BP.bubbleMinRadius * 2)} px Ø`);
-  drawSlider(ctx, geom.bBubbleMax, (BP.bubbleMaxRadius - 32) / (512 - 32), "Bubble Max", `${Math.round(BP.bubbleMaxRadius * 2)} px Ø`);
-  drawSlider(ctx, geom.bLaserL,    (BP.laserLength - 128) / (1024 - 128), "Laser Len",  `${Math.round(BP.laserLength)} px`);
-  drawSlider(ctx, geom.bLaserT,    (BP.laserThickness - 4) / (48 - 4),     "Laser Thick",`${BP.laserThickness.toFixed(1)} px`);
-  drawSlider(ctx, geom.bConeL,     (BP.coneLength - 128) / (512 - 128),    "Cone Len",   `${Math.round(BP.coneLength)} px`);
+  drawSlider(ctx, geom.bBubbleMin, (BP.bubbleMinRadius - 18) / (256 - 18),  "Bubble Min", `${Math.round(BP.bubbleMinRadius * 2)} px Ø`);
+  drawSlider(ctx, geom.bBubbleMax, (BP.bubbleMaxRadius - 48) / (512 - 48),  "Bubble Max", `${Math.round(BP.bubbleMaxRadius * 2)} px Ø`);
+  drawSlider(ctx, geom.bLaserL,    (BP.laserLength - 233) / (1024 - 233),   "Laser Len",  `${Math.round(BP.laserLength)} px`);
+  drawSlider(ctx, geom.bLaserT,    (BP.laserThickness - 4) / (48 - 4),      "Laser Thick",`${BP.laserThickness.toFixed(1)} px`);
+  drawSlider(ctx, geom.bConeL,     (BP.coneLength - 128) / (512 - 128),     "Cone Len",   `${Math.round(BP.coneLength)} px`);
 
-  const totalA = Math.round(BP.coneAngleTotalDeg ?? 64);
-  const tCone  = (totalA - 4) / (64 - 4);
-  drawSlider(ctx, geom.bConeA, Math.max(0, Math.min(1, tCone)), "Cone Angle", `${totalA}°`);
 
   // --- Miasma toggle button ---
   geom.bMiasma.x = x0;
-  geom.bMiasma.y = geom.bConeA.y + 60;
+  geom.bMiasma.y = geom.bConeL.y + 60;
+
 
   ctx.fillStyle = "rgba(50,50,50,0.6)";
   ctx.fillRect(geom.bMiasma.x, geom.bMiasma.y, geom.bMiasma.w, geom.bMiasma.h);
