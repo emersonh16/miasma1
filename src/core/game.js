@@ -101,17 +101,24 @@ const DRAG_DECAY_HZ    = 6.0;    // how quickly that extra drag fades
 // Minimal “kick” so first flick visibly moves
 const KICK_VEL_STEPS   = 140;    // steps/sec floor when torque exists
 
+// --- Min‑alive stop + extra‑notch‑to‑Off ---
+const MIN_ACTIVE_STEP   = 8;                            // tiny bubble stop
+const MIN_ACTIVE_LEVEL  = MIN_ACTIVE_STEP / (CONT_STEPS - 1);
+const OFF_DBLCLICK_MS   = 300;                          // window for second UP to turn Off
+
+
 
 
 
 const wheelCtrl = {
   lastT: performance.now(),
-  dir: 0,           // -1 up, +1 down
-  torque: 0,        // accumulated push
-  vel: 0,           // steps/sec
-  accSteps: 0,      // fractional steps
-  discAcc: 0,       // for discrete mode
-  dragHz: 0         // instantaneous extra damping from last flick (decays)
+  dir: 0,
+  torque: 0,
+  vel: 0,
+  accSteps: 0,
+  discAcc: 0,
+  dragHz: 0,
+  offArmDeadline: 0,   // <= now means not armed
 };
 
 
@@ -123,7 +130,8 @@ function ease01(x) {              // snappier S-curve 0..1
 
 addEventListener("wheel", (e) => {
   const family = (typeof beam.getFamily === "function") ? beam.getFamily() : "discrete";
-  const sign = (e.deltaY < 0) ? +1 : -1;
+ const sign = (e.deltaY > 0) ? +1 : -1; // ↓ (deltaY>0) drives toward LASER, ↑ toward OFF
+
 
   if (family === "continuous") {
     const now = performance.now();
@@ -133,11 +141,49 @@ addEventListener("wheel", (e) => {
     // fade prior torque
     wheelCtrl.torque *= Math.exp(-TORQUE_DECAY_HZ * dt);
 
-    // reverse direction → brake velocity so it resists before turning
     if (wheelCtrl.dir !== 0 && sign !== wheelCtrl.dir) {
-      wheelCtrl.vel *= REVERSE_BRAKE;
+      // HARD STOP: freeze exactly on current 1/256 step
+      wheelCtrl.vel = 0;
+      wheelCtrl.accSteps = 0;
+      wheelCtrl.torque = 0;
+      wheelCtrl.dragHz = 0;
+      wheelCtrl.dir = sign;
+
+          // --- Ergonomic gates: min‑alive bubble + extra notch to Off ---
+    const nowMs = performance.now();
+    const curL  = (typeof beam.getLevel === "function") ? (beam.getLevel() || 0) : 0;
+
+    // 1) From OFF: first DOWN notch boots to min‑alive bubble (not mid‑cone)
+    if (curL <= 0.0001 && sign > 0) { // down = toward LASER
+      beam.adjustLevel(MIN_ACTIVE_LEVEL - curL);
+      e.preventDefault();
+      return;
     }
-    wheelCtrl.dir = sign;
+
+    // 2) UP toward OFF: stop at min‑alive; require second UP (within window) to go fully Off
+    const EPS = 1e-4;
+    if (sign < 0 && curL <= MIN_ACTIVE_LEVEL + EPS) { // up = toward OFF
+      if (nowMs <= wheelCtrl.offArmDeadline) {
+        // second UP within window -> go Off
+        beam.adjustLevel(-curL);
+        wheelCtrl.offArmDeadline = 0;
+      } else {
+        // first UP -> snap to min‑alive and arm Off
+        if (curL > MIN_ACTIVE_LEVEL) beam.adjustLevel(MIN_ACTIVE_LEVEL - curL);
+        wheelCtrl.offArmDeadline = nowMs + OFF_DBLCLICK_MS;
+      }
+      e.preventDefault();
+      return;
+    }
+
+
+      // critical: skip adding torque on THIS event
+      e.preventDefault();
+      return;
+    }
+ 
+
+
 
     // add torque proportional to notch magnitude
     const notch = Math.min(2.5, Math.abs(e.deltaY) / WHEEL_STEP);
