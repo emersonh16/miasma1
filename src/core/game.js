@@ -82,30 +82,29 @@ addEventListener("mousemove", (e) => {
 });
 
 // --- Wheel → “heavy swivel” controller (torque → velocity → level)
-const WHEEL_STEP = 100;          // typical notch ~= 100
-const CONT_STEPS = 256;          // fine granularity for level (0..1)
+const WHEEL_STEP = 100;
+const CONT_STEPS = 256;
 
-// --- ULTRA‑SNAPPY + FLICK‑RELATIVE DRAG ---
-const TORQUE_IMPULSE   = 3.2;    // strong push per notch
-const TORQUE_DECAY_HZ  = 4.0;    // keeps ramping a beat
-const INERTIA          = 40;     // fast spin‑up
-const VEL_DAMPING_HZ   = 1.0;    // baseline friction (always on)
-const VEL_MAX          = 1600;   // top sweep speed
-const REVERSE_BRAKE    = 0.35;   // crisp direction flips
+// --- AGGRO+ (snappy but controlled)
+const TORQUE_IMPULSE   = 3.6;  // keep punch
+const TORQUE_DECAY_HZ  = 3.8;  // tiny bit more stick
+const INERTIA          = 36;   // spins up a hair faster
+const VEL_DAMPING_HZ   = 1.1;  // tiny extra baseline drag
+const VEL_MAX          = 1800; // same headroom
+const REVERSE_BRAKE    = 0.42; // crisper hard‑stop
 
 // Immediate drag tied to flick speed
-const DRAG_BASE_HZ     = 0.0;    // added to baseline even for slow scrolls
-const DRAG_K_HZ        = 3.0;    // scales with flick speed (bigger flick ⇒ more instant drag)
-const DRAG_DECAY_HZ    = 6.0;    // how quickly that extra drag fades
+const DRAG_BASE_HZ     = 0.0;
+const DRAG_K_HZ        = 3.6;  // stronger first‑beat bite after big flick
+const DRAG_DECAY_HZ    = 5.5;  // fades a touch slower
 
-// Minimal “kick” so first flick visibly moves
-const KICK_VEL_STEPS   = 140;    // steps/sec floor when torque exists
+// Minimal “kick”
+const KICK_VEL_STEPS   = 120;  // keeps first flick visible, slightly less jumpy
 
 // --- Min‑alive stop + extra‑notch‑to‑Off ---
-const MIN_ACTIVE_STEP   = 8;                            // tiny bubble stop
+const MIN_ACTIVE_STEP   = 7;   // tiny bubble, still readable
 const MIN_ACTIVE_LEVEL  = MIN_ACTIVE_STEP / (CONT_STEPS - 1);
-const OFF_DBLCLICK_MS   = 300;                          // window for second UP to turn Off
-
+const OFF_DBLCLICK_MS   = 320; // forgiving up‑to‑off window
 
 
 
@@ -147,41 +146,43 @@ addEventListener("wheel", (e) => {
       wheelCtrl.accSteps = 0;
       wheelCtrl.torque = 0;
       wheelCtrl.dragHz = 0;
+      // Latch the stop so the very next frame can't advance due to leftover math
+      wheelCtrl.stoppedUntilMs = performance.now() + 50; // ~1 frame @60fps
       wheelCtrl.dir = sign;
-
-          // --- Ergonomic gates: min‑alive bubble + extra notch to Off ---
-    const nowMs = performance.now();
-    const curL  = (typeof beam.getLevel === "function") ? (beam.getLevel() || 0) : 0;
-
-    // 1) From OFF: first DOWN notch boots to min‑alive bubble (not mid‑cone)
-    if (curL <= 0.0001 && sign > 0) { // down = toward LASER
-      beam.adjustLevel(MIN_ACTIVE_LEVEL - curL);
-      e.preventDefault();
+      e.preventDefault(); // do not add torque on this flip event
       return;
     }
+    wheelCtrl.dir = sign;
 
-    // 2) UP toward OFF: stop at min‑alive; require second UP (within window) to go fully Off
-    const EPS = 1e-4;
-    if (sign < 0 && curL <= MIN_ACTIVE_LEVEL + EPS) { // up = toward OFF
-      if (nowMs <= wheelCtrl.offArmDeadline) {
-        // second UP within window -> go Off
-        beam.adjustLevel(-curL);
-        wheelCtrl.offArmDeadline = 0;
-      } else {
-        // first UP -> snap to min‑alive and arm Off
-        if (curL > MIN_ACTIVE_LEVEL) beam.adjustLevel(MIN_ACTIVE_LEVEL - curL);
-        wheelCtrl.offArmDeadline = nowMs + OFF_DBLCLICK_MS;
+    // --- Ergonomic gates: min‑alive bubble + extra notch to Off ---
+    {
+      const nowMs = performance.now();
+      const curL  = (typeof beam.getLevel === "function") ? (beam.getLevel() || 0) : 0;
+
+      // 1) From OFF: first DOWN notch boots to min‑alive bubble (not mid‑cone)
+      if (curL <= 0.0001 && sign > 0) { // down = toward LASER
+        beam.adjustLevel(MIN_ACTIVE_LEVEL - curL);
+        e.preventDefault();
+        return;
       }
-      e.preventDefault();
-      return;
+
+      // 2) UP toward OFF: stop at min‑alive; require second UP (within window) to fully go Off
+      const EPS = 1e-4;
+      if (sign < 0 && curL <= MIN_ACTIVE_LEVEL + EPS) { // up = toward OFF
+        if (nowMs <= (wheelCtrl.offArmDeadline || 0)) {
+          // second UP within window -> go Off
+          beam.adjustLevel(-curL);
+          wheelCtrl.offArmDeadline = 0;
+        } else {
+          // first UP -> snap to min‑alive and arm Off
+          if (curL > MIN_ACTIVE_LEVEL) beam.adjustLevel(MIN_ACTIVE_LEVEL - curL);
+          wheelCtrl.offArmDeadline = nowMs + OFF_DBLCLICK_MS;
+        }
+        e.preventDefault();
+        return;
+      }
     }
 
-
-      // critical: skip adding torque on THIS event
-      e.preventDefault();
-      return;
-    }
- 
 
 
 
@@ -310,11 +311,19 @@ function frame(now) {
   }
   // --- Integrate heavy swivel feel (continuous only)
   if (!state.paused && !state.dead && typeof beam.getFamily === "function" && beam.getFamily() === "continuous") {
-    // decay torque over time
-    wheelCtrl.torque *= Math.exp(-TORQUE_DECAY_HZ * dt);
+    // HARD STOP latch: if we just flipped direction, freeze for one frame
+    if (wheelCtrl.stoppedUntilMs && performance.now() <= wheelCtrl.stoppedUntilMs) {
+      wheelCtrl.vel = 0;
+      wheelCtrl.torque = 0;
+      wheelCtrl.accSteps = 0;
+      // skip the rest of integration this frame
+    } else {
+      // decay torque over time
+      wheelCtrl.torque *= Math.exp(-TORQUE_DECAY_HZ * dt);
 
-    // torque → accel (steps/sec^2), then apply friction to velocity
-    const gain  = ease01(Math.abs(wheelCtrl.torque));        // 0..1
+      // torque → accel (steps/sec^2), then apply friction to velocity
+      const gain  = ease01(Math.abs(wheelCtrl.torque));        // 0..1
+
     const accel = Math.sign(wheelCtrl.torque) * (gain / INERTIA) * 1000; // scaled
     wheelCtrl.vel += accel * dt;
     // --- DAMPING: baseline + instantaneous flick‑drag (decays over time)
@@ -354,10 +363,16 @@ function frame(now) {
       wheelCtrl.accSteps -= whole; // keep fractional residue
     }
 
-    // deadzone cleanup
-    if (Math.abs(wheelCtrl.vel) < 0.01 && Math.abs(wheelCtrl.torque) < 0.01) {
-      wheelCtrl.vel = 0; wheelCtrl.torque = 0; wheelCtrl.accSteps = 0;
-    }
+       // deadzone cleanup
+      if (Math.abs(wheelCtrl.vel) < 0.01 && Math.abs(wheelCtrl.torque) < 0.01) {
+        wheelCtrl.vel = 0; wheelCtrl.torque = 0; wheelCtrl.accSteps = 0;
+      }
+    } // <- closes the else for hard-stop latch
+  }
+
+  // reset latch once time has passed
+  if (wheelCtrl.stoppedUntilMs && performance.now() > wheelCtrl.stoppedUntilMs) {
+    wheelCtrl.stoppedUntilMs = 0;
   }
 
 
