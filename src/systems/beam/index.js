@@ -41,6 +41,42 @@ const MAX = {
 const ANGLE_TOTAL_DEG = 64;
 const BUDGET_PER_STAMP = 160;
 
+// --- Visual/clear smoothing (keeps hitboxes conceptually same; just eases to target) ---
+const VIS_SMOOTH_HZ = 12; // larger = snappier; smaller = silkier
+let _vis = {
+  bubbleMinRadius: BASE.bubbleMin,
+  bubbleMaxRadius: BASE.bubbleMax,
+  laserLength:     BASE.laserLen,
+  laserThickness:  BASE.laserThick,
+  coneLength:      BASE.coneLen,
+  coneAngleTotalDeg: ANGLE_TOTAL_DEG,
+};
+let _lastSmoothTime = performance.now();
+
+/** Exponential smoothing toward current getParams() targets; dt-based so frame-rate independent */
+export function getSmoothParams() {
+  const now = performance.now();
+  const dt = Math.min(0.05, Math.max(0, (now - _lastSmoothTime) / 1000));
+  _lastSmoothTime = now;
+
+  const target = getParams(); // current level/mode target
+  // convert Hz to decay factor: alpha = 1 - exp(-2π f dt)
+  const f = VIS_SMOOTH_HZ;
+  const alpha = 1 - Math.exp(-2 * Math.PI * f * dt);
+
+  _vis.bubbleMinRadius   += (target.bubbleMinRadius  - _vis.bubbleMinRadius)   * alpha;
+  _vis.bubbleMaxRadius   += (target.bubbleMaxRadius  - _vis.bubbleMaxRadius)   * alpha;
+  _vis.laserLength       += (target.laserLength      - _vis.laserLength)       * alpha;
+  _vis.laserThickness    += (target.laserThickness   - _vis.laserThickness)    * alpha;
+  _vis.coneLength        += (target.coneLength       - _vis.coneLength)        * alpha;
+  // angle is locked; copy directly just in case
+  _vis.coneAngleTotalDeg  = ANGLE_TOTAL_DEG;
+
+  return _vis;
+}
+
+
+
 export function setLevel(n = LEVEL_MIN) {
   state.level = Math.max(LEVEL_MIN, Math.min(LEVEL_MAX, Math.round(n)));
 }
@@ -87,7 +123,7 @@ function clearCone(origin, dir, length, halfAngle, budget) {
 // ---- hit test & clearing (hitbox matches visuals) ----
 export function raycast(origin, dir) {
   const mode = MODES[state.modeIndex];
-  const BP = getParams();
+  const BP = getSmoothParams();
   const MAX_PER_STEP = BUDGET_PER_STAMP;
   const T = miasma.getTileSize();
   const TILE_PAD = T * 0.15;
@@ -255,7 +291,7 @@ export function raycast(origin, dir) {
 // ---- visuals ----
 export function draw(ctx, cam, player) {
   const mode = MODES[state.modeIndex];
-  const BP = getParams();
+  const BP = getSmoothParams();
 
   ctx.save();
   ctx.translate(-cam.x + player.x, -cam.y + player.y);
