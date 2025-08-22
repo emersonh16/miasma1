@@ -15,14 +15,6 @@ const SPEED_MAX = 120;
 const SPEED_STEPS = 100;
 const SMOOTH = 0.18;
 
-//helper
-function norm01(val, lo, hi) {
-  const d = hi - lo;
-  if (!Number.isFinite(d) || d <= 0) return 0;
-  const t = (val - lo) / d;
-  return Math.max(0, Math.min(1, t));
-}
-
 
 // positions
 const geom = {
@@ -31,22 +23,17 @@ const geom = {
   slider: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
 
   // miasma toggle
-  bMiasma: { x: 0, y: 0, w: 120, h: 18 },
+  bMiasma:    { x: 0, y: 0, w: 120, h: 18 },
 
-  // beam sliders (stacked) — discrete only
-  bBubbleMin: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
-  bBubbleMax: { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
-  bLaserL:    { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
-  bLaserT:    { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
-  bConeL:     { x: 0, y: 0, w: SLIDER_W, h: SLIDER_H },
+  // beam level buttons
+  bBeamMinus: { x: 0, y: 0, w: 24, h: 18 },
+  bBeamPlus:  { x: 0, y: 0, w: 24, h: 18 },
 
 };
 
 // interaction + UI-smoothing state
 let draggingDir = false;
 let draggingSpeed = false;
-let draggingBeam = null; // "bubbleMin" | "bubbleMax" | "laserL" | "laserT" | "coneL"
-let beamModule = null;
 
 let mouseDown = false;
 let windModule = null;
@@ -64,26 +51,10 @@ function pointInCircle(mx, my, c) { const dx = mx - c.cx, dy = my - c.cy; return
 function pointInRect(mx, my, r) { return mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h; }
 
 function setWind(patch) { if (!windModule) return; windModule.setGear(0, { ...patch, locked: true }); }
-function setBeam(patch) { if (!beamModule) return; beamModule.setParams(patch); }
-
-function drawSlider(ctx, rect, t, label, fmtVal) {
-  ctx.fillStyle = "rgba(255,255,255,0.2)";
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  const knobX = Math.round(rect.x + t * rect.w);
-  const knobY = rect.y + rect.h / 2;
-  ctx.fillStyle = "#ffd700";
-  ctx.beginPath(); ctx.arc(knobX, knobY, 6, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.stroke();
-  if (label) {
-    ctx.fillStyle = "#ccc";
-    ctx.fillText(`${label}: ${fmtVal}`, rect.x, rect.y - 14);
-  }
-}
 
 // --- Input (HUD-only) ---
 addEventListener("mousedown", (e) => {
   if (!config.flags.devhud) return;
-  if (!beamModule) beamModule = beam;
 
   mouseDown = true;
   const mx = e.clientX, my = e.clientY;
@@ -92,31 +63,20 @@ addEventListener("mousedown", (e) => {
   if (pointInCircle(mx, my, geom.compass)) { draggingDir = true; updateDirFromMouse(mx, my); return; }
   if (pointInRect(mx, my, geom.slider))    { draggingSpeed = true; updateSpeedFromMouse(mx);  return; }
 
+  // Beam level buttons
+  if (pointInRect(mx, my, geom.bBeamMinus)) { beam.levelDown(); return; }
+  if (pointInRect(mx, my, geom.bBeamPlus))  { beam.levelUp();   return; }
+
   // Miasma toggle button
   if (pointInRect(mx, my, geom.bMiasma)) { config.flags.miasma = !config.flags.miasma; return; }
-
-  // Beam sliders
-  const tests = [
-    ["bubbleMin", geom.bBubbleMin],
-    ["bubbleMax", geom.bBubbleMax],
-    ["laserL",    geom.bLaserL],
-    ["laserT",    geom.bLaserT],
-    ["coneL",     geom.bConeL],
-  ];
-
-
-  for (const [name, r] of tests) {
-    if (pointInRect(mx, my, r)) { draggingBeam = name; updateBeamFromMouse(mx, name); return; }
-  }
 });
 addEventListener("mousemove", (e) => {
   if (!mouseDown || !config.flags.devhud) return;
   const mx = e.clientX, my = e.clientY;
   if (draggingDir)   { updateDirFromMouse(mx, my); return; }
   if (draggingSpeed) { updateSpeedFromMouse(mx);   return; }
-  if (draggingBeam)  { updateBeamFromMouse(mx, draggingBeam); return; }
 });
-function endDrag() { mouseDown = false; draggingDir = false; draggingSpeed = false; draggingBeam = null; }
+function endDrag() { mouseDown = false; draggingDir = false; draggingSpeed = false; }
 addEventListener("mouseup", endDrag);
 addEventListener("mouseleave", endDrag);
 addEventListener("blur", endDrag);
@@ -132,29 +92,6 @@ function updateSpeedFromMouse(mx) {
   const q = Math.round(t * SPEED_STEPS) / SPEED_STEPS;
   const spd = SPEED_MIN + q * (SPEED_MAX - SPEED_MIN);
   setWind({ speedTilesPerSec: spd });
-}
-function updateBeamFromMouse(mx, which) {
-  if (!beamModule) return;
-  const clamp01 = (t) => Math.max(0, Math.min(1, t));
-
-  // [rect, min, max, key, formatter]
-  const map = {
-    bubbleMin: [geom.bBubbleMin, 123, 492, "bubbleMinRadius", (v) => `${Math.round(v*2)} px Ø`],
-    bubbleMax: [geom.bBubbleMax, 164, 328, "bubbleMaxRadius", (v) => `${Math.round(v*2)} px Ø`],
-    laserL:    [geom.bLaserL,    656, 1312,"laserLength",     (v) => `${Math.round(v)} px`],
-    laserT:    [geom.bLaserT,      15,   31, "laserThickness",(v) => `${v.toFixed(1)} px`],
-    coneL:     [geom.bConeL,      287,  574, "coneLength",    (v) => `${Math.round(v)} px`],
-  };
-
-
-
-  const row = map[which];
-  if (!row) return;
-  const [rect, lo, hi, key] = row;
-  const t = clamp01((mx - rect.x) / rect.w);
-  const val = lo + t * (hi - lo);
-  if (key === "coneAngleTotalDeg") setBeam({ coneAngleTotalDeg: val });
-  else setBeam({ [key]: val });
 }
 
 /** Dev HUD overlay */
@@ -237,60 +174,32 @@ export function drawDevHUD(ctx, cam, player, mouse, miasma, wind, w, h) {
     ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.stroke();
   }
 
-  // --- Beam sliders layout (stacked under wind slider) ---
-  const BP = (typeof beam.getParams === "function")
-    ? beam.getParams()
-    : { bubbleMinRadius: 48, bubbleMaxRadius: 128, laserLength: 512, laserThickness: 12, coneLength: 224, coneAngleTotalDeg: 64 };
-
+  // --- Beam level control ---
+  const level = (typeof beam.getLevel === "function") ? beam.getLevel() : 1;
   const x0 = geom.panel.x + 30;
-  let y0 = geom.slider.y + 50;   // push further down from wind slider
-  const gap = 28;                // larger vertical gap between sliders
+  const labelY = geom.slider.y + 50; // push further down from wind slider
 
-  geom.bBubbleMin.x = x0; geom.bBubbleMin.y = y0; y0 += gap;
-  geom.bBubbleMax.x = x0; geom.bBubbleMax.y = y0; y0 += gap;
-  geom.bLaserL.x    = x0; geom.bLaserL.y    = y0; y0 += gap;
-  geom.bLaserT.x    = x0; geom.bLaserT.y    = y0; y0 += gap;
-  geom.bConeL.x     = x0; geom.bConeL.y     = y0;
-
-
-
-  // section label
   ctx.fillStyle = "#ccc";
-  ctx.fillText("Beam", geom.panel.x + 8, geom.slider.y + 24);
+  ctx.fillText(`Beam Level: ${level}/16`, x0, labelY);
 
-  // draw sliders (scaled for BubbleMax=328)
-  drawSlider(
-    ctx, geom.bBubbleMin,
-    norm01(BP.bubbleMinRadius, 123, 492),
-    "Bubble Min", `${Math.round(BP.bubbleMinRadius * 2)} px Ø`
-  );
-  drawSlider(
-    ctx, geom.bBubbleMax,
-    norm01(BP.bubbleMaxRadius, 164, 328),
-    "Bubble Max", `${Math.round(BP.bubbleMaxRadius * 2)} px Ø`
-  );
-  drawSlider(
-    ctx, geom.bLaserL,
-    norm01(BP.laserLength, 656, 1312),
-    "Laser Len", `${Math.round(BP.laserLength)} px`
-  );
-  drawSlider(
-    ctx, geom.bLaserT,
-    norm01(BP.laserThickness, 15, 31),
-    "Laser Thick", `${BP.laserThickness.toFixed(1)} px`
-  );
-  drawSlider(
-    ctx, geom.bConeL,
-    norm01(BP.coneLength, 287, 574),
-    "Cone Len", `${Math.round(BP.coneLength)} px`
-  );
+  geom.bBeamMinus.x = x0;
+  geom.bBeamMinus.y = labelY + 8;
+  geom.bBeamPlus.x = x0 + geom.bBeamMinus.w + 12;
+  geom.bBeamPlus.y = labelY + 8;
 
-
-
+  ctx.fillStyle = "rgba(50,50,50,0.6)";
+  ctx.fillRect(geom.bBeamMinus.x, geom.bBeamMinus.y, geom.bBeamMinus.w, geom.bBeamMinus.h);
+  ctx.fillRect(geom.bBeamPlus.x,  geom.bBeamPlus.y,  geom.bBeamPlus.w,  geom.bBeamPlus.h);
+  ctx.strokeStyle = "#fff";
+  ctx.strokeRect(geom.bBeamMinus.x + 0.5, geom.bBeamMinus.y + 0.5, geom.bBeamMinus.w - 1, geom.bBeamMinus.h - 1);
+  ctx.strokeRect(geom.bBeamPlus.x  + 0.5, geom.bBeamPlus.y  + 0.5, geom.bBeamPlus.w  - 1, geom.bBeamPlus.h  - 1);
+  ctx.fillStyle = "#ffd700";
+  ctx.fillText("–", geom.bBeamMinus.x + 8, geom.bBeamMinus.y + 4);
+  ctx.fillText("+", geom.bBeamPlus.x + 6, geom.bBeamPlus.y + 4);
 
   // --- Miasma toggle button ---
   geom.bMiasma.x = x0;
-  geom.bMiasma.y = geom.bConeL.y + 60;
+  geom.bMiasma.y = geom.bBeamMinus.y + geom.bBeamMinus.h + 40;
 
 
   ctx.fillStyle = "rgba(50,50,50,0.6)";
