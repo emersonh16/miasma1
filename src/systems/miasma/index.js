@@ -35,12 +35,13 @@ const TW = (() => {
   return {
     max: t.max ?? 160,                              // ↓ fewer total
 spawnChancePerCleared: 1.0, // every cleared tile spawns
-moteSize: [3, 5],
-wispSize: [5, 8],
-moteLife: [1, 2],
-wispLife: [1.5, 2.5],                      // ↓ short
+moteSize: [1, 2],
+wispSize: [3, 4],
+moteLife: [6, 8],
+wispLife: [6, 8],                      // ↓ short
     jitter:    6,                                   // slight wiggle
-    color:     "#66ffe5",                           // light teal
+    color:     RIM_COLOR,                           // match rim glow color
+
   };
 })();
 
@@ -165,6 +166,8 @@ const S = {
   ox: 0, oy: 0,          // draw window origin (world-aligned)
   viewW: 0, viewH: 0,
   time: 0,
+  // Last-known player (center) in world space — set in update()
+  px: 0, py: 0,
   // Fog phase (in tiles) — where the fog field is relative to world due to wind
   fxTiles: 0, fyTiles: 0,
   // perf stats
@@ -291,13 +294,17 @@ export function clearArea(wx, wy, r, _amt = 64) {
         checkFrontier(ftx, fty);
         updateNeighbors(ftx, fty);
 
-        // Spray AWAY from the light source, INTO the miasma (along beam)
-        const beamBoost = getBeamIntensity(); // 0..1 (laser strongest)
-        const a = (typeof beam.getAngle === "function") ? beam.getAngle() : 0;
-        const dirx = Math.cos(a), diry = Math.sin(a);
+        // Spray OUT from the player toward this cleared spot (radial from player)
+        const beamBoost = getBeamIntensity(); // 0..1
         if (Math.random() < TW.spawnChancePerCleared * (1 + beamBoost)) {
-          spawnTwinkle(centerX, centerY, dirx, diry, beamBoost);
+          // vector from player center → this cleared tile center
+          let vx = centerX - S.px;
+          let vy = centerY - S.py;
+          const len = Math.hypot(vx, vy) || 1;
+          vx /= len; vy /= len; // unit direction away from player
+          spawnTwinkle(centerX, centerY, vx, vy, beamBoost);
         }
+
       }
     }
   }
@@ -305,24 +312,25 @@ export function clearArea(wx, wy, r, _amt = 64) {
 }
 
 export function update(dt, centerWX, centerWY, _worldMotion = { x:0, y:0 }, viewW = S.viewW, viewH = S.viewH) {
-
   S.time += dt;
+
+  // remember player/center (world space) so spawns can push away from player
+  S.px = centerWX;
+  S.py = centerWY;
 
   // reset per-frame stats
   S.stats.clearCalls = 0;
   S.stats.regrow = 0;
   S.stats.drawHoles = 0;
   S.stats.forgotOffscreen = 0;
-  
 
-  // PR3: advance twinkles
+  // advance particle twinkles
   updateTwinkles(dt);
 
-
-  // Debug: peek at beam intensity (0..1)
-if (config.flags.devhud) {
-  console.log("Beam intensity:", getBeamIntensity().toFixed(2));
-}
+  // optional debug: log beam intensity if devhud flag is on
+  if (config.flags.devhud) {
+    console.log("Beam intensity:", getBeamIntensity().toFixed(2));
+  }
 
 
 
