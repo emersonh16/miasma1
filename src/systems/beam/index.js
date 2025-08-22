@@ -44,8 +44,9 @@ const BeamParams = {
   coneBaseRadius: 80,      // new: circle base just larger than max bubble
 
   // Laser band
-  laserLength: 320,        // longer than cone
-  laserThickness: 10,      
+  laserLength: 480,        // longer than cone (256)
+  laserThickness: 16,      // much thicker core hitbox + visual
+
 
   // Perf
   budgetPerStamp: 160,
