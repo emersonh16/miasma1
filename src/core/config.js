@@ -13,7 +13,7 @@ export const config = {
 
   // Beam tuning (all units in fog tiles; converted at runtime using miasma.tileSize)
   beam: {
-    laser:  { steps: 24, stepTiles: 3, radiusTiles: 3, thicknessTiles: 0.75 },
+    laser:  { steps: 24, stepTiles: 3, radiusTiles: 3, thicknessTiles: 0.75, dps: 15 },
     cone:   { steps: 10, stepTiles: 3, radiusTiles: 10 }, // half-width at far end
     bubble: { radiusTiles: 20 }
   },

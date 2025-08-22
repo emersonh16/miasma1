@@ -10,6 +10,10 @@ import * as wind from "../systems/wind/index.js";
 import { drawDevHUD } from "../render/devhud.js";
 import { drawHUD } from "../render/hud.js";
 import * as rocks from "../systems/rocks/index.js";
+import { drawEnemies, updateEnemy } from "../entities/enemy.js";
+import { iterEntitiesInAABB } from "../world/store.js";
+
+
 
 
 // --- Canvases ---
@@ -169,6 +173,15 @@ function frame(now) {
     // Rocks: ensure clusters near view
     rocks.ensureRocksForView(player.x, player.y);
 
+    // Update enemies
+    const ax = cam.x - w / 2;
+    const ay = cam.y - h / 2;
+    const bx = cam.x + w / 2;
+    const by = cam.y + h / 2;
+    for (const e of iterEntitiesInAABB(ax, ay, bx, by)) {
+      if (e.type === "enemy") updateEnemy(e, dt, player);
+    }
+
 
 
     // Health management
@@ -201,9 +214,16 @@ function frame(now) {
   ctx.save();
   ctx.translate(w / 2, h / 2);
   if (config.flags.grid) drawGrid(ctx, cam, w, h, 64);
-  rocks.draw(ctx, cam, w, h);       // <— draw rocks here
+  rocks.draw(ctx, cam, w, h);
+
+
+  // Draw enemies before beam/player
+  drawEnemies(ctx, cam, w, h);
+
+
   beam.draw(ctx, cam, player);
   drawPlayer(ctx, cam, player);
+
   ctx.restore();
 
   // Fog overlay

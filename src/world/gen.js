@@ -1,6 +1,7 @@
 import { CHUNK_SIZE, TILE_SIZE } from "./store.js";
 import { chunkToWorld } from "../core/coords.js";
 import { config } from "../core/config.js";
+import { makeEnemy } from "../entities/enemy.js";
 
 function mulberry32(a) {
   return function () {
@@ -43,6 +44,22 @@ export function generateChunk(cx, cy) {
     const wx = baseWX + lx * TILE_SIZE + TILE_SIZE * 0.5;
     const wy = baseWY + ly * TILE_SIZE + TILE_SIZE * 0.5;
     entities.push({ type: "rock", wx, wy });
+  }
+
+  // Drop one or more enemies on non-solid tiles
+  const enemiesInChunk = 1 + Math.floor(rand() * 3);
+  for (let i = 0; i < enemiesInChunk; i++) {
+    let attempts = 0;
+    while (attempts++ < 10) {
+      const lx = Math.floor(rand() * CHUNK_SIZE);
+      const ly = Math.floor(rand() * CHUNK_SIZE);
+      const idx = ly * CHUNK_SIZE + lx;
+      if (tiles[idx].solid) continue;
+      const x = baseWX + lx * TILE_SIZE + TILE_SIZE * 0.5;
+      const y = baseWY + ly * TILE_SIZE + TILE_SIZE * 0.5;
+      entities.push(makeEnemy(x, y));
+      break;
+    }
   }
 
   return { tiles, entities };

@@ -1,5 +1,7 @@
 import * as miasma from "../miasma/index.js";
 import { config } from "../../core/config.js";
+import { iterEntitiesInAABB } from "../../world/store.js";
+
 
 // world units per fog tile
 const FOG_T = () => miasma.getTileSize();
@@ -160,9 +162,9 @@ export function raycast(origin, dir, params = {}) {
     }
   }
 
-
-
+  // Laser: clears fog AND damages enemies along the beam over time
   if (mode === "laser") {
+    // --- visual/clear pass (unchanged) ---
     const len = BeamParams.laserLength;
     const ux = Math.cos(dir),  uy = Math.sin(dir); // forward
     const nx = -Math.sin(dir), ny = Math.cos(dir); // normal
@@ -246,8 +248,46 @@ export function raycast(origin, dir, params = {}) {
       }
     }
 
+
+    // --- DAMAGE pass (laser only) ---
+    // Tunable via config.beam.laser.dps (fallback 15)
+    const LASER_DPS = (config?.beam?.laser?.dps ?? 15);
+    // Keep API stable: derive dt internally
+    const now = performance.now();
+    if (typeof raycast._lastTime !== "number") raycast._lastTime = now;
+    const dt = Math.min(0.05, Math.max(0, (now - raycast._lastTime) / 1000));
+    raycast._lastTime = now;
+
+    // Build an AABB around the beam to cheaply gather candidates
+    const x0 = origin.x, y0 = origin.y;
+    const x1 = origin.x + ux * len, y1 = origin.y + uy * len;
+    const pad = offHalo2 + T * 1.5; // generous enough to include core/halos
+    const minX = Math.min(x0, x1) - pad, maxX = Math.max(x0, x1) + pad;
+    const minY = Math.min(y0, y1) - pad, maxY = Math.max(y0, y1) + pad;
+
+    // Precise cylinder hit vs enemies within the AABB
+    for (const e of iterEntitiesInAABB(minX, minY, maxX, maxY)) { // uses world/store iterator:contentReference[oaicite:0]{index=0}
+      if (e?.type !== "enemy" || typeof e.health !== "number") continue;
+      // Project enemy onto beam segment
+      const vx = e.x - x0, vy = e.y - y0;
+      const tProj = vx * ux + vy * uy;         // distance along beam
+      if (tProj < 0 || tProj > len) continue;  // outside segment
+      // Perp distance to beam centerline — expand by enemy radius so it "feels" like the visual
+      const perp = Math.abs(vx * uy - vy * ux);
+      const er = (e.r ?? 0);
+      if (perp <= rCore + er) {
+        e.health -= LASER_DPS * dt;
+        if (e.health < 0) e.health = 0;
+      }
+
+    }
+
     return { hits: [], clearedFog };
+
+
   }
+
+
 
 
   if (mode === "cone") {
