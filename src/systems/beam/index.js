@@ -45,6 +45,25 @@ const BeamParams = {
 const LEVELS = 16; // 0..16 where 0=OFF, 16=LASER
 const state = { modeIndex: 1, angle: 0, family: "discrete", levelIndex: 0 };
 
+// --- Smooth display index (float) that eases toward levelIndex ---
+let _smoothIdx = 0;                 // float 0..16
+let _lastSmoothMs = performance.now();
+const SMOOTH_HZ = 12;               // higher = faster easing (try 10–16)
+
+function _advanceSmooth() {
+  const now = performance.now();
+  const dt = Math.max(0, (now - _lastSmoothMs) / 1000);
+  _lastSmoothMs = now;
+
+  // exponential approach toward the integer levelIndex
+  const target = getLevelIndex();
+  const k = 1 - Math.exp(-SMOOTH_HZ * dt); // 0..1
+  _smoothIdx = _smoothIdx + (target - _smoothIdx) * k;
+
+  return _smoothIdx; // float 0..16
+}
+
+
 export function getLevelIndex() { return state.levelIndex | 0; }          // int 0..16
 export function setLevelIndex(i) { state.levelIndex = Math.max(0, Math.min(16, (i|0))); }
 export function stepLevel(di = 1) { setLevelIndex(getLevelIndex() + (di|0)); }
@@ -123,29 +142,30 @@ export function setParams(patch = {}) {
 export function getParams() { return { ...BeamParams, coneAngleTotalDeg: BeamParams.coneHalfAngleDeg * 2 }; }
 
 
-// --- Shared sampler so visuals == hitbox in continuous family (module-scope) ---
 function sampleContinuousEnvelope(origin, dir) {
   const T = miasma.getTileSize();
   const TILE_PAD = T * 0.15;
   const ux = Math.cos(dir), uy = Math.sin(dir);
   const circles = [];
-  const idx = getLevelIndex(); // 0..16
 
-  // 0 = OFF
-  if (idx <= 0) return circles;
+  // use smoothed float index for softer transitions
+  const idxF = _advanceSmooth();     // float 0..16
 
-  // 1..5 → Bubble (grow radius)
-  if (idx <= 5) {
+  // OFF
+  if (idxF <= 0.001) return circles;
+
+  // Bubble: 1..5 (allow fractional blend across)
+  if (idxF < 5.999) {
     const r0 = 12, r1 = BeamParams.bubbleRadius;
-    const t = (idx - 1) / (5 - 1); // 0..1 across 1..5
+    const t = Math.max(0, Math.min(1, (idxF - 1) / (5 - 1))); // 0..1
     const r = r0 + (r1 - r0) * t;
     circles.push({ x: origin.x, y: origin.y, r: r + TILE_PAD });
     return circles;
   }
 
-  // 6..15 → Cone (angle 64→4°, length from base→coneLength)
-  if (idx <= 15) {
-    const t = (idx - 6) / (15 - 6); // 0..1 across 6..15
+  // Cone: 6..15 (fractional blend across)
+  if (idxF < 15.999) {
+    const t = Math.max(0, Math.min(1, (idxF - 6) / (15 - 6))); // 0..1
     const halfStart = 32, halfEnd = 2;
     const halfAdeg  = halfStart + (halfEnd - halfStart) * t;
     const halfA     = (halfAdeg * Math.PI) / 180;
@@ -165,10 +185,10 @@ function sampleContinuousEnvelope(origin, dir) {
     return circles;
   }
 
-  // 16 → LASER (binary): fixed, slightly longer than cone max
+  // Laser (binary): fixed, slightly longer than cone max
   {
     const CONE_MAX = BeamParams.coneLength;
-    const MIN_JUMP_PX = Math.max(12, T * 2);            // “visibly longer but not much”
+    const MIN_JUMP_PX = Math.max(12, T * 2); // “visibly longer but not much”
     const FIXED_LEN   = CONE_MAX + MIN_JUMP_PX;
 
     const thick = BeamParams.laserThickness;
@@ -201,7 +221,7 @@ export function raycast(origin, dir, params = {}) {
   BeamStats.clearedTiles = 0;
 
 
-  // continuous family → use shared sampler (0..16 levels)
+   // continuous family → use shared sampler (0..16 levels) in world space
   if (state.family === "continuous") {
     const circles = sampleContinuousEnvelope(origin, dir);
     for (const c of circles) {

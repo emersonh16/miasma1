@@ -130,13 +130,12 @@ function ease01(x) {              // snappier S-curve 0..1
 }
 
 // 16-step stepper: 0 = OFF, 1..15 = bubble→cone, 16 = LASER
+// Snappier: larger deltas step multiple levels; quick successive notches add +1 bonus.
 addEventListener("wheel", (e) => {
   const family = (typeof beam.getFamily === "function") ? beam.getFamily() : "discrete";
   const sign = (e.deltaY > 0) ? +1 : -1; // ↓ attack (toward laser), ↑ retreat (toward off)
 
-  // Treat continuous as stepped now
   if (family === "continuous") {
-    // HARD STOP on direction flip is implicit because we only step on notches now
     const nowMs = performance.now();
     const idx = (typeof beam.getLevelIndex === "function") ? beam.getLevelIndex() : 0; // 0..16
 
@@ -147,36 +146,39 @@ addEventListener("wheel", (e) => {
       return;
     }
 
-    // UP near OFF: require extra UP to go 0
+    // UP near OFF: require extra UP to go 0 (double-tap window)
     if (sign < 0 && idx === 1) {
-      // double-up window
       if (!wheelCtrl.offArmDeadline || nowMs > wheelCtrl.offArmDeadline) {
-        // arm
-        wheelCtrl.offArmDeadline = nowMs + OFF_DBLCLICK_MS;
-        // stay at level 1 (tiny bubble)
+        wheelCtrl.offArmDeadline = nowMs + OFF_DBLCLICK_MS; // arm
       } else {
-        // commit off
-        if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(0);
+        if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(0); // commit off
         wheelCtrl.offArmDeadline = 0;
       }
       e.preventDefault();
       return;
     }
 
-    // Normal stepping
-    const next = Math.max(0, Math.min(16, idx + (sign > 0 ? +1 : -1)));
-    if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(next);
+    // --- Snappy multi-step ---
+    // base steps from delta magnitude (1..4)
+    const base = Math.max(1, Math.min(4, Math.floor(Math.abs(e.deltaY) / (WHEEL_STEP * 0.75)) + 1));
+    // quick-succession bonus (if this notch arrives fast after previous)
+    const dt = nowMs - (wheelCtrl.lastWheelMs || 0);
+    const bonus = (dt > 0 && dt < 120) ? 1 : 0; // feels arcade-y, still controllable
 
+    const steps = Math.max(1, Math.min(4, base + bonus));
+    const next = Math.max(0, Math.min(16, idx + (sign > 0 ? +steps : -steps)));
+
+    if (typeof beam.setLevelIndex === "function") beam.setLevelIndex(next);
+    wheelCtrl.lastWheelMs = nowMs;
     e.preventDefault();
     return;
   }
 
-  // legacy discrete family mode stepping unchanged
+  // legacy discrete family behavior (unchanged)
   wheelCtrl.discAcc += e.deltaY;
   while (wheelCtrl.discAcc <= -WHEEL_STEP) { beam.modeUp(1);   wheelCtrl.discAcc += WHEEL_STEP; }
   while (wheelCtrl.discAcc >=  WHEEL_STEP) { beam.modeDown(1); wheelCtrl.discAcc -= WHEEL_STEP; }
 }, { passive: false });
-
 
 
 // --- Game state (pause/death) ---
